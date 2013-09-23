@@ -1,0 +1,16 @@
+<apex:page controller="URLNavigation">
+<apex:form >
+    <apex:sectionHeader title="This is for Demo"/>
+        <apex:pageBlock >
+            <apex:pageBlockButtons location="top">
+                <apex:commandButton value="Click Me!" action="{!ClickMe}"/>
+            </apex:pageBlockButtons>
+            <apex:pageBlockTable value="{!listParams}" var="parms">
+                <apex:column headerValue="Select" >
+                    <apex:inputCheckbox value="{!parms.bSelected}" />
+                </apex:column>
+                <apex:column headerValue="Website Name" value="{!parms.oInnerClass.Name}"/>
+            </apex:pageBlockTable>
+        </apex:pageBlock>
+</apex:form>
+</apex:page>

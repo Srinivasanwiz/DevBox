@@ -1,0 +1,31 @@
+<apex:page standardController="Order_Line_Item__c" extensions="OrderLineItemDetailsExtn" action="{!initiate}">
+    <apex:pageMessages /> 
+    <apex:form >
+        <apex:pageBlock >
+            <apex:pageBlockTable value="{!listMenuItems}" var="menu">
+               
+                <apex:column headerValue="Type">
+                    <apex:outputField value="{!menu.Food_Type__c}"/>
+                </apex:column>
+                 <apex:column headerValue="Category">
+                    <apex:outputField value="{!menu.Category__c}"/>
+                </apex:column>
+                 <apex:column headerValue="Sub Category">
+                    <apex:outputField value="{!menu.Sub_Category__c}"/>
+                </apex:column>
+                <apex:column headerValue="List Price">
+                    <apex:outputField value="{!menu.List_Price__c}"/>
+                </apex:column>
+                <apex:column headerValue="Quantity">
+                    <apex:inputText value="{!strQuantity}"/>
+                </apex:column>
+                <apex:column headerValue="Image">
+                    <apex:image value="{!menu.Food_Image__c}"  url="https://c.ap1.content.force.com/servlet/servlet.FileDownload?file=00P90000001tf8F" width="256" height="256"/>
+                </apex:column>
+                 <apex:column headerValue="Action">    
+                     <apex:commandButton value="Add" action="{!AddOrderLineItem}"/>
+                 </apex:column>
+            </apex:pageBlockTable>
+        </apex:pageBlock>
+    </apex:form>
+</apex:page>

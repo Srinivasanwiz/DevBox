@@ -1,0 +1,18 @@
+<apex:page standardController="Account">
+<apex:form >
+    <apex:pageBlock >
+    <apex:pageBlockButtons >
+        <apex:commandButton value="Test" action="{!URLFOR($Action.Account.Edit, account.id)}"/>
+    </apex:pageBlockButtons>
+        <apex:inputField value="{!Account.Name}"/>
+        <apex:inputField value="{!Account.BillingStreet}"/>
+    </apex:pageBlock>   
+    <apex:pageBlock >
+        <apex:pageBlockSection >
+            <apex:outputLabel value="Employee">
+                <apex:inputField value="{!Account.NumberofEmployees}"/>
+            </apex:outputLabel>
+        </apex:pageBlockSection>
+    </apex:pageBlock> 
+</apex:form>    
+</apex:page>
