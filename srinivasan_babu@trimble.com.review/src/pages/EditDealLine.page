@@ -1,0 +1,6 @@
+<apex:page standardController="Deal_Registration_Line__c"> 
+ <apex:detail subject="{!Deal_Registration_Line__c.Id}" />
+   <script>
+       alert('To modify deal registration line please click on edit button on deal registration line detail page.');
+   </script>      
+</apex:page>

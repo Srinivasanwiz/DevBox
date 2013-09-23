@@ -1,0 +1,109 @@
+<apex:page standardController="Forecast_Qua__c" extensions="ForecastController" action="{!loadData}">
+<apex:form >
+<apex:pageMessages id="msg"/> 
+<apex:pageBlock id="pgBlock">
+        
+       <table cellspacing="20" width = "100%"> 
+           <tr> 
+            <td style="font-weight:bold;" width="2%">Fiscal Year</td>
+            <td style="align:left;" width="2%">{!FYear}</td>
+            <td style="font-weight:bold;" width="2%">Fiscal Quarter</td>
+            <td style="align:left;" width="4%">{!forecast.FQ__c}</td>
+            <td width="40%">&nbsp;</td>
+          </tr>
+       </table>       
+      
+       <table cellspacing="20"  >
+         <tr>
+           <td style="font-weight:bold;"><apex:outputLabel value="Division"/></td>
+           <td><apex:inputField value="{!forecastWeek.Division__c}" /></td>
+           <td>
+             <apex:commandLink action="{!addRow}" style="cursor:default;text-decoration: none;" reRender="theBlock,pgBlock,week14,msg">
+                <apex:commandButton value="Add"  id="btnAdd"/>
+             </apex:commandLink>   
+            </td>
+            <td><apex:commandButton value="Save" action="{!UpdateForecast}" id="btnUpdate" /></td>
+            <td width = "100%"></td>
+            
+            <td><apex:commandButton value="Save" action="{!UpdateForecast}" id="btnUpdate1" /></td>
+         </tr>
+       </table>
+        
+       <apex:outputPanel id="theBlock">
+          <table border="0" width="100%" class="list" cellspacing="0" cellpadding="0">            
+            <tr class="headerRow">
+              <td>
+                 <apex:commandLink action="{!sortColumns}" rerender="theBlock" value="{!$ObjectType.Forecast_Week__c.Fields.Division__c.Label}{!IF(sortExpression=='Division__c',IF(sortDirection='ASC','▼','▲'),'')}">
+                   <apex:param value="Division__c" name="sortExpression" assignTo="{!sortExpression}"/>
+                 </apex:commandLink>
+              </td>                 
+              <td>Target</td>
+              <td>Week 1</td>
+              <td>Week 2</td>  
+              <td>Week 3</td>
+              <td>Week 4</td> 
+              <td>Week 5</td>
+              <td>Week 6</td>
+              <td>Week 7</td>
+              <td>Week 8</td>
+              <td>Week 9</td>
+              <td>Week 10</td>
+              <td>Week 11</td>
+              <td>Week 12</td> 
+              <td>Week 13</td>
+              <apex:actionRegion id="week14" rendered="{!is14Week == true}"><td>Week 14</td></apex:actionRegion>
+              <td>Action</td>
+            </tr>                      
+            <apex:repeat value="{!clsForeCastList}" var="FCQ"> 
+            <tr class="dataRow" onmouseover="if (window.hiOn){hiOn(this);}" onmouseout="if (window.hiOff){hiOff(this);}">
+              <td style ="vertical-align:top;" >{!FCQ.division}</td> 
+              <td style ="vertical-align:top;">
+                  <span style="color:#000000; font-size: .9em; font-weight: bold;">Target</span> 
+                  <apex:inputText value="{!FCQ.weekTarget}" size="30"/><br/>                  
+                  <span style="color:#000000; font-size: .9em; font-weight: bold;">Variance (T-F)</span>
+                  <apex:outputText value="{0, number, ###,##0}">    
+                     <apex:param value="{!FCQ.varianceForecast}" />  
+                  </apex:outputText>
+                  <br/>
+                  
+                  <span style="color:#000000; font-size: .9em; font-weight: bold;">Variance (T-A)</span> 
+                  <apex:outputText value="{0, number, ###,##0}">    
+                     <apex:param value="{!FCQ.varianceActual}" />  
+                  </apex:outputText>   
+              </td>
+             <apex:repeat value="{!FCQ.weekList}" var="week">
+              <td style ="vertical-align:top;" >
+                <span style="color:#000000; font-size: .9em; font-weight: bold;">Forecast&nbsp;</span> 
+                <apex:actionRegion rendered="{!OR(week.forecastWeek.Actual__c == null,week.forecastWeek.Actual__c == 0)}">
+                  <apex:inputText value="{!week.forecastWeek.Forecast__c}" size="30"> 
+                  </apex:inputText>   
+                </apex:actionRegion>
+                <apex:actionRegion rendered="{!AND(week.forecastWeek.Actual__c != null,week.forecastWeek.Actual__c >0)}">   
+                   <apex:inputText value="{!week.forecastWeek.Forecast__c}" size="30" disabled="true" style="color:#000000; background-color:transparent;border: 0px solid;">
+                   </apex:inputText> 
+                </apex:actionRegion>   
+                <br/>
+                <span style="color:#000000; font-size: .9em; font-weight: bold;">Actual</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                <apex:outputText value="{0, number, {!FCurrency} ###,##0}">
+                   <apex:param value="{!week.forecastWeek.Actual__c}" />  
+                </apex:outputText>
+                <br/>
+                <span style="color:#000000; font-size: .9em; font-weight: bold;">Variance</span> &nbsp;
+                <apex:outputText value="{0, number, {!FCurrency} ###,##0}">    
+                   <apex:param value="{!week.forecastWeek.Variance__c}" />  
+                </apex:outputText>
+              </td>     
+             </apex:repeat> 
+             <td>
+                <apex:commandLink action="{!deleteRow}" rerender="theBlock" value="Delete">
+                  <apex:param value="{!FCQ.division}" assignto="{!divisionName}" name="divisionName"/>
+                </apex:commandLink>
+             </td>
+            </tr>
+            </apex:repeat>
+          </table>
+       </apex:outputPanel>   
+</apex:pageBlock>
+
+</apex:form>
+</apex:page>

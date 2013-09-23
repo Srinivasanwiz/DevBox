@@ -1,0 +1,39 @@
+<apex:page standardController="Projectz__c" extensions="OpportunityProductSummaryClass" showHeader="false" sidebar="false" >
+<script>
+
+  function launchWindow(){
+     window.open("/apex/opportunityProductRelatedListPage?id={!projectId}"); 
+  } 
+  
+</script>
+<apex:form >
+  <apex:pageBlock mode="main" id="pb">
+     
+    <apex:pageMessages />
+    <apex:pageBlockTable value="{!relatedOpportunities}" id="opportunityTable" var="opp" rendered="{!AND(relatedOpportunities!=null, relatedOpportunities.size > 0)}">
+        <apex:column headerValue="Name" value="{!opp.Name}"/>
+        <apex:column headerValue="Account Name" value="{!opp.Account.Name}"/>        
+        <apex:column headerValue="Rep's Name" value="{!opp.Owner.Name}"/>
+        <apex:column headerValue="Rep's Division" value="{!opp.Owner.Division__c}"/> 
+        <apex:column headerValue="Rep's Email Address" value="{!opp.Owner.Email}"/>
+        <apex:column headerValue="Rep's Phone Number" value="{!opp.Owner.Phone}"/>
+        <apex:column headerValue="Type" value="{!opp.Type}"/>
+        <apex:column headerValue="Stage" value="{!opp.StageName}"/>
+        <apex:column headerValue="Close Date" value="{!opp.CloseDate}"/>        
+    </apex:pageBlockTable>           
+    <apex:outputPanel id="opt1" rendered="{!remainder != 0}">
+       <apex:commandLink action="{!loadMoreOpportunities}" rerender="pb">             
+           Show {!remainder} more >>
+           <apex:param assignTo="{!loadMore}" value="true" /> 
+       </apex:commandLink>
+    </apex:outputPanel>      
+    <apex:outputPanel id="opt2" rendered="{!AND(relatedOpportunities != null, relatedOpportunities.size > 0, remainder != 0)}">
+       | <a target="_blank" onclick="launchWindow();" style="cursor:pointer;text-decoration:underline;">
+           Go to list ({!totalSize}) >>
+       </a>
+    </apex:outputPanel>          
+     
+    <apex:outputLabel value="No records found" rendered="{!OR(relatedOpportunities == null, AND(relatedOpportunities != null, relatedOpportunities.size <= 0))}" />
+  </apex:pageBlock>  
+</apex:form>
+</apex:page>

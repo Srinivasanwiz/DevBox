@@ -1,0 +1,1650 @@
+<apex:page controller="pw_cc.CountryCompleteController" title="ProvenWorks {!IF(IsVersionPro, 'AddressTools', 'CountryComplete')}">
+    
+    <style type="text/css">
+    	.contentClass{margin:0;padding:0 0 0 1px;font-size:12px;border:0 solid white;background-color:white;}
+    	.headerClass{border:0 solid white;}
+    	.activeTab{color:white;background-image:none;background-color:#EF2B2D;}
+    	.inactiveTab{cursor:pointer;color:black;background-image:none;background-color:{!IF($User.UIThemeDisplayed = 'Theme3','#F8F8F8','#F3F3EC')};}
+		.dr-tbpnl-tb-sel{border-color:#EF2B2D;}
+		.bPageBlock .pbTitle h2 { width: 500px; }
+		.bPageBlock .pbTitle h2 { font-size: 1.2em!important; }
+		.tdWait { display:none; vertical-align:middle; text-align: left;padding-left: 85px; }
+		.noRowsBody { background-color:#F8F8F8;	background-image:none; border:0 none; font-size:1em; font-weight:normal; }
+		#rowNoData td { border:0 none; }
+    </style>
+    
+    <apex:form >
+	    <apex:includeScript value="{!URLFOR($Resource.pw_cc__BaseScripts, '/BaseScripts/jQuery.js')}"/>
+	    <apex:includeScript value="{!URLFOR($Resource.pw_cc__BaseScripts, '/BaseScripts/jQuery.blockUI.js')}"/> 
+    	<apex:includeScript value="{!URLFOR($Resource.pw_cc__BaseScripts, '/BaseScripts/json.js')}"/>
+	   	<script type="text/javascript">    		    		
+	   		var pw_cc_bs_jQuery = jQuery.noConflict(true);
+	   		
+	   		var _currentStep = 0;
+	        var _totalSteps = 0;
+			var countryRegExp = {};
+				        
+			var validatedFields;
+			var allCountries;
+			var changedCountries = [];
+			var isVersionPro;
+			var editedField;
+			var isNewField;
+
+	        function showElement(id) {
+	            document.getElementById(id).style.display = 'block';        
+	        }
+	        
+	        function hideElement(id) {
+	            document.getElementById(id).style.display = 'none';
+	        }
+	        
+	   		function installCustoms() {
+	   			var onlySampleCheckBox = document.getElementById('{!$Component.pbInstall.chkOnlySample}');
+	   			{!Confirm}
+	   			document.getElementById('hdnError').value = 'false';
+	   			_currentStep = 0;
+	   			updateProgress(0, 1);
+	   			hideElement('resultDiv');
+	   			showElement('installingDiv');
+	   			showElement('progressDiv');
+	   			blockUI('dlgProgress');
+	   			var langList = document.getElementById('{!$Component.pbInstall.languageList}');
+	   			beginInstall(langList.options[langList.selectedIndex].value, onlySampleCheckBox.checked);
+	   			_currentStep++;
+	   		}
+	   		
+	   		function insertBatch() {
+	   			var errorMessage = document.getElementById('hdnError').value;
+	   			if (errorMessage == 'true') {
+	   				hideElement('resultDiv');
+	   				hideElement('installingDiv');
+	   				hideElement('progressDiv');
+	   				setOptionsStatus();
+	   				createUndoAction();
+	   				unblockUI();
+	   				return;
+	   			}
+	   			_totalSteps = parseInt(document.getElementById('hdnCountSteps').value);
+	            if (_totalSteps > 0 && _currentStep < _totalSteps) {
+	                updateProgress(_currentStep, _totalSteps - 1);
+	                insertMore(_currentStep++);                
+	            } else {
+	   				hideElement('installingDiv');
+	   				hideElement('progressDiv');
+	   				showElement('resultDiv');
+	   				setOptionsStatus();
+	   				createUndoAction();
+	            }
+	   		}
+	   		
+	   		function updateProgress(currentStep, totalSteps) {
+	            var width = currentStep * (350 / totalSteps);
+	            document.getElementById('progressBar').style.width = width + 'px';
+	        }
+	
+	        function blockUI(id, style) {
+	            if (!style) {
+		            style = {
+	                    borderWidth: 2,
+	                    borderColor: '#EF2B2D',
+	                    backgroundColor: '#F3F3EC',
+	                    cursor: 'default',
+	                    padding: '9px',
+	                    width: '354px'
+	                }
+	            }
+	            var dlg = pw_cc_bs_jQuery('#' + id);
+		            pw_cc_bs_jQuery.blockUI({
+	                message: dlg,
+	                fadeIn: 0,
+	                fadeOut: 0,
+	                css: style	                
+	            });
+	       	}
+	       	
+	       	function unblockUI() {
+	       		pw_cc_bs_jQuery.unblockUI({
+	       			fadeIn: 0,
+	                fadeOut: 0
+	            });
+	       	}
+	       	
+			function addCountries(left, right) {
+				updateChangedCountries(right);
+				pw_cc_bs_jQuery(right + ' option:selected').remove().appendTo(left);
+			}
+
+			function removeCountries(left, right) {
+				updateChangedCountries(left);
+				pw_cc_bs_jQuery(left + ' option:selected').remove().appendTo(right);
+			}
+
+		<apex:outputPanel layout="none" rendered="{!IsVersionPro}">
+		
+			function addZipValidateCountries(left, right) {
+				updateChangedCountries(right);
+				
+				pw_cc_bs_jQuery('#tblZipCodeRegExpressions > tbody > #rowNoData').remove();
+				
+				pw_cc_bs_jQuery(right + ' option:selected').each(function() {
+					var country = allCountries[this.text];
+					addRow(pw_cc_bs_jQuery('#tblZipCodeRegExpressions'), country);
+				});
+				pw_cc_bs_jQuery(right + ' option:selected').remove().appendTo(left);
+			}
+
+			function removeZipValidateCountries(left, right) {
+				updateChangedCountries(left);
+				pw_cc_bs_jQuery(left + ' option:selected').each(function() {
+	   				pw_cc_bs_jQuery('#tr' + this.value).remove();	   		
+				});
+				
+				if (pw_cc_bs_jQuery('#tblZipCodeRegExpressions > tbody > tr.dataRow').length == 0) {
+	   				addEmptyRow(pw_cc_bs_jQuery('#tblZipCodeRegExpressions'));
+	   			}
+				
+				pw_cc_bs_jQuery(left + ' option:selected').remove().appendTo(right);
+			}
+			
+			function updateCustomFieldTableHeader() {
+				var cRows = getTableSize('tbCustomFieldEditTable');
+				if (cRows == 0) {
+					pw_cc_bs_jQuery('#thRows').hide();				
+					pw_cc_bs_jQuery('#thNoRows').show();
+				}
+				else {
+					pw_cc_bs_jQuery('#thNoRows').hide();
+					pw_cc_bs_jQuery('#thRows').show();				
+				}
+			}
+			
+			function getMaxValue(arr) {
+				var max = arr[0];
+				for (var i = 1; i < arr.length; i++) {
+					if (max < arr[i]) max = arr[i];
+				}
+				return max;
+			}
+
+			function appendCustomFieldIdRow(countryFieldId, stateFieldId, zipFieldId, cityFieldId, streetFieldId, statusFieldId) {
+				var table = pw_cc_bs_jQuery('#tbCustomFieldEditTable');
+				var size = getTableSize('tbCustomFieldEditTable');
+				var country = countryFieldId.replace(/\x22/g, '&#34;');
+				var state = stateFieldId.replace(/\x22/g, '&#34;');
+				var zip = zipFieldId.replace(/\x22/g, '&#34;');
+				var city = cityFieldId.replace(/\x22/g, '&#34;');
+				var street = streetFieldId.replace(/\x22/g, '&#34;');
+				var status = statusFieldId.replace(/\x22/g, '&#34;');
+				var rowText = '<tr id="trCustomFieldId' + size + '" onfocus="if (window.hiOn){hiOn(this);}" onblur="if (window.hiOff){hiOff(this);}" onmouseout="if (window.hiOff){hiOff(this);}" onmouseover="if (window.hiOn){hiOn(this);}" class="dataRow">';
+				rowText += '<td class="actionColumn"><a id="hrefDelCustomFieldId' + size + '" href="javascript:void(0)">Del</a></td>';
+				rowText += '<td class="dataCell"><input style="width:130px;" type="text" value="' + country + '" /></td>';
+				rowText += '<td class="dataCell"><input style="width:130px;" type="text" value="' + state + '" /></td>';
+				rowText += '<td class="dataCell"><input style="width:130px;" type="text" value="' + zip + '" /></td>';
+				rowText += '<td class="dataCell"><input style="width:130px;" type="text" value="' + city + '" /></td>';
+				rowText += '<td class="dataCell"><input style="width:130px;" type="text" value="' + street + '" /></td>';
+				rowText += '<td class="dataCell"><input style="width:130px;" type="text" value="' + status + '" /></td></tr>';
+				table.append(rowText);
+				pw_cc_bs_jQuery('#hrefDelCustomFieldId' + size).click(function() {
+					pw_cc_bs_jQuery('#trCustomFieldId' + size).remove();
+					updateCustomFieldTableHeader();
+				});
+			}
+
+			function refreshCustomFieldTable() {
+				if (!isNewField) {					
+					var countryFieldIds = [];
+					var stateFieldIds = [];
+					var zipFieldIds = [];
+					var cityFieldIds = [];
+					var streetFieldIds = [];
+					var statusFieldIds = [];
+					
+					var countryFieldId = editedField.CountryFieldId;
+					if (countryFieldId) {
+						countryFieldIds = countryFieldId.split(',');
+					}
+					
+					var stateFieldId = editedField.StateFieldId;
+					if (stateFieldId) {
+						stateFieldIds = stateFieldId.split(',');
+					}
+					var zipFieldId = editedField.ZipCodeFieldId;
+					if (zipFieldId) {
+						zipFieldIds = zipFieldId.split(',');
+					}
+					var cityFieldId = editedField.CityFieldId;
+					if (cityFieldId) {
+						cityFieldIds = cityFieldId.split(',');
+					}
+					var streetFieldId = editedField.StreetFieldId;
+					if (streetFieldId) {
+						streetFieldIds = streetFieldId.split(',');
+					}
+					var statusFieldId = editedField.AddressStatusFieldId;
+					if (statusFieldId) {
+						statusFieldIds = statusFieldId.split(',');
+					}
+					
+					var len = getMaxValue([countryFieldIds.length, stateFieldIds.length, zipFieldIds.length, cityFieldIds.length, streetFieldIds.length, statusFieldIds.length]);
+					for (var i = 0; i < len; i++) {
+						var country = '';
+						var state = '';
+						var zip = '';
+						var city = '';
+						var street = '';
+						var status = '';
+						if (i < countryFieldIds.length) {
+							country = countryFieldIds[i];
+						}
+						if (i < stateFieldIds.length) {
+							state = stateFieldIds[i];
+						}
+						if (i < zipFieldIds.length) {
+							zip = zipFieldIds[i];
+						}
+						if (i < cityFieldIds.length) {
+							city = cityFieldIds[i];
+						}
+						if (i < streetFieldIds.length) {
+							street = streetFieldIds[i];
+						}
+						if (i < statusFieldIds.length) {
+							status = statusFieldIds[i];
+						}
+						appendCustomFieldIdRow(country, state, zip, city, street, status);
+					}
+				}
+				updateCustomFieldTableHeader();
+			}
+			
+			function saveCustomFields(editedField) {
+				var countryFieldIds = '';
+				var stateFields = '';
+				var zipFields = '';
+				var cityFields = '';
+				var streetFields = '';
+				var statusFields = '';
+				pw_cc_bs_jQuery('#tbCustomFieldEditTable > tbody > tr.dataRow').each(function(i,tr) {
+					var txts = tr.getElementsByTagName("input");
+					if (i > 0) {
+						countryFieldIds += ',';
+						stateFields += ',';
+						zipFields += ',';
+						cityFields += ',';	
+						streetFields += ',';
+						statusFields += ',';							
+					}
+					
+					var country = txts[0];
+					if (country.value) {
+						countryFieldIds += country.value;
+					}
+				
+					var state = txts[1];
+					if (state.value) {
+						stateFields += state.value; 
+					}
+					
+					var zip = txts[2];
+					if (zip.value) {
+						zipFields += zip.value; 
+					}
+					
+					var city = txts[3];
+					if (city.value) {
+						cityFields += city.value; 
+					}
+					
+					var street = txts[4];
+					if (street.value) {
+						streetFields += street.value; 
+					}
+					
+					var status = txts[5];
+					if (status.value) {
+						statusFields += status.value; 
+					}
+				});
+				if (countryFieldIds)
+					editedField.CountryFieldId = countryFieldIds;
+				if (stateFields)
+					editedField.StateFieldId = stateFields;
+				if (zipFields)
+					editedField.ZipCodeFieldId = zipFields;
+				if (cityFields)
+					editedField.CityFieldId = cityFields;
+				if (streetFields)
+					editedField.StreetFieldId = streetFields;
+				if (statusFields)
+					editedField.AddressStatusFieldId = statusFields;
+			}
+			
+			function showZipCodeRegExpBySelectedCountry(countryId) {
+				var regExp = countryRegExp[countryId].zipCodeRegExp;
+				var failMsg = countryRegExp[countryId].zipCodeFailMsg;
+				if (!regExp) regExp = '';
+				if (!failMsg) failMsg = '';
+				pw_cc_bs_jQuery('#txtZipCodeRegExp').val(regExp);
+				pw_cc_bs_jQuery('#txtZipCodeFailMsg').val(failMsg);
+			}
+
+			function openZipCodeDlg(countryId) {
+				saveCountriesState();
+				
+				document.getElementById('{!$Component.hdnSelectedCountryId}').value = countryId;
+				openZipCodeDialogAction();
+			}
+			
+			function fillZipCodeRegExpressionsTable() {
+	   			var table = pw_cc_bs_jQuery('#tblZipCodeRegExpressions');
+				pw_cc_bs_jQuery('#tblZipCodeRegExpressions > tbody > tr.dataRow').remove();			
+
+	   			pw_cc_bs_jQuery('#selectedCountries_zipvalidate option').each(function() {
+	   				var country = allCountries[pw_cc_bs_jQuery(this).text()];
+					addRow(table, country);
+	   			});
+	   			
+	   			if (pw_cc_bs_jQuery('#tblZipCodeRegExpressions > tbody > tr.dataRow').length == 0) {
+	   				addEmptyRow(table);
+	   			}
+	   		}
+	   		
+	   		function addEmptyRow(table) {
+	   			var tbody = pw_cc_bs_jQuery('#' + table.attr('id') + ' > tbody:last');	   			
+	   			var rowStr = '<tr id="rowNoData"><td colspan="4"><label class="noRowsBody">Please add a country to \'Validate ZIP Code Pattern\' above in order to assign a regular expression</label></td></tr>';				
+	   			tbody.append(rowStr);
+	   		}
+	   		
+	   		function addRow(table, country) {
+	   			var tbody = pw_cc_bs_jQuery('#' + table.attr('id') + ' > tbody:last');
+	   			var name = country.Name;
+	   			var failMessage = country.ZipCodeFailMessage;
+	   			var regExp = country.ZipCodeRegExp;
+	   			
+	   			var rowStr = '<tr id="tr' + country.Id + '" onfocus="if (window.hiOn){hiOn(this);}" onblur="if (window.hiOff){hiOff(this);}" onmouseout="if (window.hiOff){hiOff(this);}" onmouseover="if (window.hiOn){hiOn(this);}" class="dataRow">';
+	   			rowStr += '<td class="dataCell"><a href="javascript:void(0);" onclick="openZipCodeDlg(\''+ country.Id + '\')">Edit</a></td>';
+				rowStr += '<td class="dataCell"><label style="padding-left:5px;">' + name + '</label></td>';
+				if (failMessage)
+					rowStr += '<td class="dataCell"><label style="padding-left:5px;">' + failMessage + '</label></td>';
+				else
+					rowStr += '<td class="dataCell"><label style="padding-left:5px;">&nbsp;</label></td>';
+				if (regExp)
+					rowStr += '<td class="dataCell"><label style="padding-left:5px;">' + regExp + '</label></td>';
+				else
+					rowStr += '<td class="dataCell"><label style="padding-left:5px;">&nbsp;</label></td>';
+				
+				rowStr += '</tr>';				
+	   			tbody.append(rowStr);
+	   		}
+	   		
+	   		function fillZipCodeDlg() {
+				var countryId = document.getElementById('{!$Component.hdnSelectedCountryId}').value;
+				pw_cc_bs_jQuery('#slctZipCodeValidate option').remove();
+				
+				pw_cc_bs_jQuery.each(allCountries, function (name, country) {
+					if (country.ValidateZipCode) {
+						pw_cc_bs_jQuery('#slctZipCodeValidate')
+							.append(pw_cc_bs_jQuery('<option></option>')
+							.attr('value',country.Id)
+							.text(name));
+							
+						countryRegExp[country.Id] = {
+							zipCodeRegExp : country.ZipCodeRegExp,
+							zipCodeFailMsg : country.ZipCodeFailMessage
+						};
+					}
+				});
+				pw_cc_bs_jQuery('#slctZipCodeValidate').val(countryId);
+				showZipCodeRegExpBySelectedCountry(countryId);
+			}
+			
+			function saveCountriesRegExp() {
+				pw_cc_bs_jQuery.each(changedCountries, function (i, name) {
+					var country = allCountries[name];
+					country.ZipCodeRegExp = countryRegExp[country.Id].zipCodeRegExp ? countryRegExp[country.Id].zipCodeRegExp : null ;
+					country.ZipCodeFailMessage = countryRegExp[country.Id].zipCodeFailMsg ? countryRegExp[country.Id].zipCodeFailMsg : null;
+				});
+				document.getElementById('{!$Component.hdnAllCountries}').value = pw_cc_bs_jQuery.toJSON(allCountries);
+				var countriesToSave = pw_cc_bs_jQuery.parseJSON(document.getElementById('{!$Component.hdnChangedCountries}').value);
+				if (!countriesToSave)
+					countriesToSave = [];
+				addUnique(countriesToSave, changedCountries);
+				if (countriesToSave.length > 0)
+					document.getElementById('{!$Component.hdnChangedCountries}').value = pw_cc_bs_jQuery.toJSON(countriesToSave);
+				else
+					document.getElementById('{!$Component.hdnChangedCountries}').value = '[]';
+				changedCountries = [];
+			}
+
+			function saveZipCodeRegExp() {
+				saveCountriesRegExp();
+				cancelAction();
+			}
+			
+		</apex:outputPanel>
+		
+			function changeValidatedFieldsStatus() {
+				pw_cc_bs_jQuery('#hdnValidatedFieldsStatusChanged').val('true');
+				pw_cc_bs_jQuery('#hdnValidatedFieldsStatusChanged').trigger('change');
+			}
+			
+			function setOptionsStatus() {				
+				var isCheck = document.getElementById('{!$Component.pbStValSettings.countryCompleteEnabled}').checked;
+				
+				var checkbox1 = document.getElementById('{!$Component.pbStValSettings.onlyOperateWhenChanged}');
+				var label1 = document.getElementById('{!$Component.pbStValSettings.onlyOperateWhenChangedLabel}');
+				var labelAlt1 = document.getElementById('onlyOperateWhenChangedText');
+				
+				var checkbox2 = document.getElementById('{!$Component.pbStValSettings.runOnce}');
+				var label2 = document.getElementById('{!$Component.pbStValSettings.runOnceLabel}');
+				var labelAlt2 = document.getElementById('runOnceText');
+							
+				if (isCheck) {
+					checkbox1.removeAttribute('disabled');
+					label1.removeAttribute('disabled');
+					
+					label2.removeAttribute('disabled');
+					checkbox2.removeAttribute('disabled');
+					
+					if (navigator.appName == 'Microsoft Internet Explorer') {
+						label1.style.display = 'inline';
+						labelAlt1.style.display = 'none';
+						
+						label2.style.display = 'inline';
+						labelAlt2.style.display = 'none';
+					}
+				} else {
+					checkbox1.checked = false;
+					checkbox1.setAttribute('disabled', 'true');
+					label1.setAttribute('disabled', 'true');
+					
+					checkbox2.checked = false;
+					checkbox2.setAttribute('disabled', 'true');
+					label2.setAttribute('disabled', 'true');					
+					
+					if (navigator.appName == 'Microsoft Internet Explorer') {
+						label1.style.display = 'none';
+						labelAlt1.style.display = 'inline';
+	
+						label2.style.display = 'none';
+						labelAlt2.style.display = 'inline';						
+					}
+				}
+			}
+			
+			function updateEntityFields() {
+				selectedEntityName = document.getElementById('{!$Component.FieldAddEditBlock.entityName}').value; 
+				var selectedEntityFields = entityFields[selectedEntityName];
+				if (!selectedEntityFields) {
+					updateEntityFieldsAction();
+				}
+				else {
+					showWaitPanel();
+					updateEditDialogFields();
+					hideWaitPanel();
+				}
+			}
+		
+			function buyAdditionalCredits(name) {
+				window.open(document.getElementById('btnPurchase' + name).href);
+			}
+			
+			function buyLicense() {
+				var label = document.getElementById('lblBuyMessage');
+				label.innerHTML = ""; 
+		        var numberOfLicenses = parseInt(document.getElementById('txtLicenses').value);
+		        if (isNaN(numberOfLicenses) || numberOfLicenses <= 0) {
+		            label.innerHTML = "Please enter a number of 1 or more";
+		            return;
+		        }
+		        var minUsers = 50; 
+		        if (numberOfLicenses <= minUsers) {
+		            window.open(document.getElementById('btnBuyLicense').href);
+		        } else {
+		            window.open(document.getElementById('btnBuyAdditionalLicense').href + (numberOfLicenses - minUsers));
+		        }
+			}
+			
+			function initTabs(tabName) {
+				var entityName = document.getElementById('{!$Component.entityName}');
+				var countryField = document.getElementById('{!$Component.entityCountryField}');
+				var stateField = document.getElementById('{!$Component.entityStateField}');
+				if (entityName != null)
+					entityName.value = '';
+				if (countryField != null)
+					countryField.value = '';
+				if (stateField != null)
+					stateField.value = '';
+				saveCurrentTab(tabName);				
+			}
+				
+			function saveCurrentTab(tabName) {
+		    	var value = escape(tabName) + ";expires=" + new Date(new Date().getTime() + 60000*20) + ";path=/";
+		    	document.cookie = "apex__ActiveTab=" + value; 
+			}
+						
+			function undoAction(inputs, saveButton, cancelButton, buttonDiv) {
+				var _self = this;
+				var _inputs = inputs;
+				var _saveButton = saveButton;
+				var _cancelButton = cancelButton;
+				var _buttonDiv = buttonDiv;
+							
+				_saveButton.click(function() {
+				});
+				
+				_cancelButton.click(function() {
+					_self.cancelAll();
+				});
+				
+				_self.startWatching = function() {
+					_inputs.each(function(i,item){
+						var showBtns = function() {
+							_buttonDiv.show();
+							_saveButton.show();
+							_cancelButton.show();
+						}
+						var elem = pw_cc_bs_jQuery(item);
+						if (elem.attr('type').toUpperCase() == 'CHECKBOX') {
+							elem.click(function(e) {
+								showBtns();
+							});
+						} else {
+							elem.change(function(e) {
+								showBtns();
+							});
+						}
+					});
+				}
+
+				_self.resetAll = function() {
+					_buttonDiv.hide();
+					_saveButton.hide();
+					_cancelButton.hide();
+				}
+								
+				_self.cancelAll = function(e) {
+					location.href=location.href;
+				}
+			}
+							
+			function createUndoAction() {
+				// assign ids to pageblockbutton divs
+				var idcounter = 0;
+				pw_cc_bs_jQuery('.pbBottomButtons').each(function(i,item){
+					pw_cc_bs_jQuery(item).attr('id', 'pbbDiv' + idcounter);
+					idcounter++;
+				});			
+				// new action	
+				var undo = new undoAction(
+					pw_cc_bs_jQuery(
+					'input[id$=hdnChangedCountries]'
+					+ ',#hdnValidatedFieldsStatusChanged'
+					+',input[id$=countryCompleteEnabled],input[id$=runOnce],input[id$=onlyOperateWhenChanged],input[id$=quickCompleteCountryEnabled],input[id$=zipCodeLookupEnabled]'
+					+',input[id$=txtAlertEmail]'
+					+',select[id$=countryCodeList]'
+					)
+					,pw_cc_bs_jQuery('input[type=submit][class=btn][value="Save All"]')
+					,pw_cc_bs_jQuery('input[type=button][class=btn][action="undo"]')
+					,pw_cc_bs_jQuery('#pbbDiv0,#pbbDiv2')
+				);
+				// watch
+				undo.startWatching();
+				return undo;	
+			}
+			
+			function arrayContains(array, str) {
+				for (var i = 0; i < array.length; i++) {
+					if (array[i] == str)
+						return true;
+				}
+				return false;
+			}
+
+	   		function openEditDialog(selectedEntityName, selectedCountryField) {
+				saveCountriesState();
+				document.getElementById('{!$Component.hdnEditedEntity}').value = selectedEntityName;
+				document.getElementById('{!$Component.hdnEditedCountryField}').value = selectedCountryField;
+				
+				openEditDialogAction();
+	   		}
+
+	   		function removeValidatedField(selectedEntityName, selectedCountryField) {
+				saveCountriesState();
+				document.getElementById('{!$Component.hdnSelectedEntityName}').value = selectedEntityName;
+				document.getElementById('{!$Component.hdnSelectedCountryField}').value = selectedCountryField;
+				removeValidatedFieldAction();
+	   		}
+
+	   		function resetDefaults() {
+				saveCountriesState();
+				resetDefaultsAction();
+	   		}
+	   		
+	   		function openAddDialog() {
+				saveCountriesState();
+				openAddDialogAction();
+	   		}
+	   		
+			function updateChangedCountries(slct) {
+				addUnique(changedCountries, pw_cc_bs_jQuery.map(pw_cc_bs_jQuery(slct + ' option:selected'), function(o) { return o.text }));				
+				pw_cc_bs_jQuery('input[id$=hdnChangedCountries]').trigger('change');
+			}
+
+			function addUnique(set, array) {
+				for (var i = 0; i < array.length; i++) {
+					if (!arrayContains(set, array[i]))
+						set.push(array[i]);
+				}
+			}
+
+	   		function equalsIgnoreCase(s1, s2) {
+	   			return (s1.toLowerCase() == s2.toLowerCase());
+	   		}
+
+	   		function defineString(s) {
+	   			if (!s) return '';
+	   			return s;
+	   		}
+
+	   		function fieldContains(field, entityName, fieldName) {
+   				if (equalsIgnoreCase(field.Object, entityName) && 
+   					(equalsIgnoreCase(field.CountryField, fieldName) ||
+   					equalsIgnoreCase(defineString(field.AddressStatusField), fieldName) ||
+   					equalsIgnoreCase(defineString(field.StateField), fieldName) ||
+   					equalsIgnoreCase(defineString(field.ZipCodeField), fieldName) || 
+   					equalsIgnoreCase(defineString(field.CountryRelationshipField), fieldName) ||
+   					equalsIgnoreCase(defineString(field.CityField), fieldName) ||
+   					equalsIgnoreCase(defineString(field.StreetField), fieldName) ||
+   					equalsIgnoreCase(defineString(field.ZipCodeRelationshipField), fieldName) ||
+   					equalsIgnoreCase(defineString(field.StateRelationshipField), fieldName))) {
+   					return true;
+   				}
+	   			return false;
+	   		}
+	   		
+			function fillOptions(selectElement, options, insertEmpty, value) {
+				selectElement.empty();
+				if (insertEmpty) {
+					selectElement
+						.append(pw_cc_bs_jQuery("<option></option>")
+						.attr('value', '')
+						.text(''));
+				}
+				
+				pw_cc_bs_jQuery.each(options, function(index, value) {   
+					selectElement
+						.append(pw_cc_bs_jQuery('<option></option>')
+						.attr('value', value)
+						.text(value)); 
+				});
+				if (value) {
+					selectElement.val(value);
+				}
+			}
+
+			function fillEditDialogFields() {
+	   			isVersionPro = {!IsVersionPro};
+	   			isNewField = {!IsNewField};
+				validatedFields = pw_cc_bs_jQuery.parseJSON(document.getElementById('hdnValidatedFields').value);
+
+				var editedCountryField = '';
+				if (!isNewField) {
+					// find edited field
+					var editedEntity = document.getElementById('{!$Component.hdnEditedEntity}').value;
+					editedCountryField = document.getElementById('{!$Component.hdnEditedCountryField}').value;
+					for (var i = 0; i < validatedFields.length; i++) {
+						if (equalsIgnoreCase(validatedFields[i].Object, editedEntity) &&
+							equalsIgnoreCase(validatedFields[i].CountryField, editedCountryField)) {
+							editedField = validatedFields[i];
+							break;
+						}
+					}
+				}
+
+				entityFields = pw_cc_bs_jQuery.parseJSON(pw_cc_bs_jQuery('#hdnEntityFields').val());
+				
+				var selectedStateField = '';
+				var selectedZipcodeField = '';
+				var selectedCountryRelationshipField = '';
+				var selectedStateRelationshipField = '';
+				var selectedStatusField = '';
+				var selectedCityField = '';
+				var selectedStreetField = '';
+				var selectedZipcodeRelationshipField = '';
+				
+				if (!isNewField) {
+					selectedStateField = editedField.StateField ? editedField.StateField : '';
+					selectedZipcodeField = editedField.ZipCodeField ? editedField.ZipCodeField : '';
+					selectedCountryRelationshipField = editedField.CountryRelationshipField ? editedField.CountryRelationshipField : '';
+					selectedStateRelationshipField = editedField.StateRelationshipField ? editedField.StateRelationshipField : '';
+					selectedStatusField = editedField.AddressStatusField ? editedField.AddressStatusField : '';
+					selectedCityField = editedField.CityField ? editedField.CityField : '';
+					selectedStreetField = editedField.StreetField ? editedField.StreetField : '';
+					selectedZipcodeRelationshipField = editedField.ZipCodeRelationshipField ? editedField.ZipCodeRelationshipField : '';
+					
+					setCheckbox(pw_cc_bs_jQuery('#chkCountryMandatory'), editedField.IsCountryMandatory);				
+					setCheckbox(pw_cc_bs_jQuery('#chkAllowOnlyListedCountries'), editedField.AllowOnlyListedCountries);
+					setCheckbox(pw_cc_bs_jQuery('#chkStandardize'), editedField.Standardize);
+					setCheckbox(pw_cc_bs_jQuery('#chkUseForAddressValidation'), editedField.UseForAddressValidation);
+				}
+				
+				updateFields(editedCountryField, selectedStateField, selectedZipcodeField, selectedCountryRelationshipField, selectedStateRelationshipField, selectedStatusField, selectedCityField, selectedStreetField, selectedZipcodeRelationshipField);
+			}
+
+ 			function updateEditDialogFields() {
+				entityFields = pw_cc_bs_jQuery.parseJSON(pw_cc_bs_jQuery('#hdnEntityFields').val());
+				
+				var selectedCountryField;
+				if (!isNewField && equalsIgnoreCase(editedField.Object, selectedEntityName)) {
+					selectedCountryField = editedField.CountryField;
+				}
+				else selectedCountryField = null;
+
+				updateFields(selectedCountryField, null, null, null, null, null, null, null, null);				
+ 			}
+
+ 			function updateFields(selectedCountryField, selectedStateField, selectedZipcodeField, selectedCountryRelationshipField, selectedStateRelationshipField, selectedStatusField, selectedCityField, selectedStreetField, selectedZipcodeRelationshipField) {
+				var countryFields = [];
+				var stateFields = [];
+				var zipcodeFields = [];
+				var countryRelationshipFields = [];
+				var stateRelationshipFields = [];
+				var statusFields = [];
+				var cityFields = [];
+				var streetFields = [];
+				var zipcodeRelationshipFields = [];
+				
+				var selectedEntityName = document.getElementById('{!$Component.FieldAddEditBlock.entityName}').value;
+				var selectedEntityFields = entityFields[selectedEntityName];
+				var otherFields = [];
+				for (var i = 0; i < validatedFields.length; i++) {
+					if (equalsIgnoreCase(validatedFields[i].Object, selectedEntityName)) {
+						if (editedField != validatedFields[i]) {
+							otherFields.push(validatedFields[i]);
+						}
+					}
+				}
+
+				for (var i = 0; i < selectedEntityFields.length; i++) {
+					var field = selectedEntityFields[i];
+					var isValid = true;
+					for (var j = 0; j < otherFields.length; j++) {
+						if (fieldContains(otherFields[j], selectedEntityName, field.Name)) {
+							isValid = false;
+							break;
+						}
+					}
+					if (isValid) {
+				        if (field.IsCountryField && field.Name != selectedZipcodeField && field.Name != selectedStateField && field.Name != selectedStatusField && field.Name != selectedCityField && field.Name != selectedStreetField && field.Name != selectedCountryRelationshipField && field.Name != selectedStateRelationshipField && field.Name != selectedZipcodeRelationshipField) {
+				        	countryFields.push(field.Name);
+				        	if (!selectedCountryField) selectedCountryField = field.Name;
+				        }
+				        if (field.IsStatusField && field.Name != selectedCountryField && field.Name != selectedZipcodeField && field.Name != selectedStateField && field.Name != selectedCityField && field.Name != selectedStreetField && field.Name != selectedCountryRelationshipField && field.Name != selectedStateRelationshipField && field.Name != selectedZipcodeRelationshipField) {
+				        	statusFields.push(field.Name);
+				        }
+				        var isSelectedCountryField = (field.Name == selectedCountryField);
+
+			        	if (field.IsStateField && !isSelectedCountryField && field.Name != selectedZipcodeField && field.Name != selectedStatusField && field.Name != selectedCityField && field.Name != selectedStreetField && field.Name != selectedCountryRelationshipField && field.Name != selectedStateRelationshipField && field.Name != selectedZipcodeRelationshipField)
+			            	stateFields.push(field.Name);
+			            if (field.IsZipCodeField && !isSelectedCountryField && field.Name != selectedStateField && field.Name != selectedStatusField && field.Name != selectedCityField && field.Name != selectedStreetField && field.Name != selectedCountryRelationshipField && field.Name != selectedStateRelationshipField && field.Name != selectedZipcodeRelationshipField)
+			            	zipcodeFields.push(field.Name);
+			            if (field.IsCityField && !isSelectedCountryField && field.Name != selectedZipcodeField && field.Name != selectedStateField && field.Name != selectedStatusField && field.Name != selectedStreetField && field.Name != selectedCountryRelationshipField && field.Name != selectedStateRelationshipField && field.Name != selectedZipcodeRelationshipField)
+			            	cityFields.push(field.Name);
+			            if (field.IsStreetField && !isSelectedCountryField && field.Name != selectedZipcodeField && field.Name != selectedStateField && field.Name != selectedStatusField && field.Name != selectedCityField && field.Name != selectedCountryRelationshipField && field.Name != selectedStateRelationshipField && field.Name != selectedZipcodeRelationshipField)
+			            	streetFields.push(field.Name);
+
+				        if (isVersionPro) {
+				            if (field.IsCountryRelationshipField && !isSelectedCountryField && field.Name != selectedZipcodeField && field.Name != selectedStateField && field.Name != selectedStatusField && field.Name != selectedCityField && field.Name != selectedStreetField && field.Name != selectedStateRelationshipField && field.Name != selectedZipcodeRelationshipField)
+				            	countryRelationshipFields.push(field.Name);
+				            if (field.IsStateRelationshipField && !isSelectedCountryField && field.Name != selectedZipcodeField && field.Name != selectedStateField && field.Name != selectedStatusField && field.Name != selectedCityField && field.Name != selectedStreetField && field.Name != selectedCountryRelationshipField && field.Name != selectedZipcodeRelationshipField)
+				            	stateRelationshipFields.push(field.Name);		
+				            if (field.IsZipCodeRelationshipField && !isSelectedCountryField && field.Name != selectedZipcodeField && field.Name != selectedStateField && field.Name != selectedStatusField && field.Name != selectedCityField && field.Name != selectedStreetField && field.Name != selectedCountryRelationshipField && field.Name != selectedStateRelationshipField)
+				            	zipcodeRelationshipFields.push(field.Name);		
+				        }
+					}
+				}
+				if (countryFields.length == 0) {
+					pw_cc_bs_jQuery('#divCountryFields').hide();
+					pw_cc_bs_jQuery('#divNoCountryFields').show();
+					pw_cc_bs_jQuery('input[id$=btnAddField]').each(function(i, v) {
+						pw_cc_bs_jQuery(this).hide();
+					});
+				}
+				else {
+					pw_cc_bs_jQuery('#divNoCountryFields').hide();
+					pw_cc_bs_jQuery('#divCountryFields').show();
+					pw_cc_bs_jQuery('input[id$=btnAddField]').each(function(i, v) {
+						pw_cc_bs_jQuery(this).show();
+					});
+				}
+				
+				fillOptions(pw_cc_bs_jQuery('#entityCountryField'), countryFields, false, selectedCountryField);
+				fillOptions(pw_cc_bs_jQuery('#entityStatusField'), statusFields, true, selectedStatusField);
+				fillOptions(pw_cc_bs_jQuery('#entityStateField'), stateFields, true, selectedStateField);
+				fillOptions(pw_cc_bs_jQuery('#entityZipCodeField'), zipcodeFields, true, selectedZipcodeField);
+				fillOptions(pw_cc_bs_jQuery('#entityCityField'), cityFields, true, selectedCityField);
+				fillOptions(pw_cc_bs_jQuery('#entityStreetField'), streetFields, true, selectedStreetField);
+				if (isVersionPro) {
+					fillOptions(pw_cc_bs_jQuery('#entityCountryRelationshipField'), countryRelationshipFields, true, selectedCountryRelationshipField);
+					fillOptions(pw_cc_bs_jQuery('#entityStateRelationshipField'), stateRelationshipFields, true, selectedStateRelationshipField);
+					fillOptions(pw_cc_bs_jQuery('#entityZipcodeRelationshipField'), zipcodeRelationshipFields, true, selectedZipcodeRelationshipField);
+					
+					if (pw_cc_bs_jQuery('#entityStateField').val()) {
+						pw_cc_bs_jQuery('#StateSelectedRow').show();
+						pw_cc_bs_jQuery('#NoStateSelectedRow').hide();						
+					}
+					else {
+						pw_cc_bs_jQuery('#StateSelectedRow').hide();
+						pw_cc_bs_jQuery('#NoStateSelectedRow').show();						
+					}
+					if (pw_cc_bs_jQuery('#entityZipCodeField').val()) {
+						pw_cc_bs_jQuery('#ZipcodeSelectedRow').show();
+						pw_cc_bs_jQuery('#NoZipcodeSelectedRow').hide();						
+					}
+					else {
+						pw_cc_bs_jQuery('#ZipcodeSelectedRow').hide();
+						pw_cc_bs_jQuery('#NoZipcodeSelectedRow').show();						
+					}
+				}
+ 			}
+			
+			function saveField() {
+				var selectedEntityName = document.getElementById('{!$Component.FieldAddEditBlock.entityName}').value;
+				var	newField = {
+					Object : selectedEntityName,
+					CountryField : pw_cc_bs_jQuery('#entityCountryField').val(),
+					IsCountryMandatory : getCheckbox(pw_cc_bs_jQuery('#chkCountryMandatory')),
+					AllowOnlyListedCountries : getCheckbox(pw_cc_bs_jQuery('#chkAllowOnlyListedCountries')),
+					Standardize : getCheckbox(pw_cc_bs_jQuery('#chkStandardize')),
+					UseForAddressValidation : getCheckbox(pw_cc_bs_jQuery('#chkUseForAddressValidation'))
+				};
+				newField.StateField = pw_cc_bs_jQuery('#entityStateField').val() ? pw_cc_bs_jQuery('#entityStateField').val() : null;
+				newField.ZipCodeField = pw_cc_bs_jQuery('#entityZipCodeField').val() ? pw_cc_bs_jQuery('#entityZipCodeField').val() : null;
+				newField.CityField = pw_cc_bs_jQuery('#entityCityField').val() ? pw_cc_bs_jQuery('#entityCityField').val() : null;
+				newField.StreetField = pw_cc_bs_jQuery('#entityStreetField').val() ? pw_cc_bs_jQuery('#entityStreetField').val() : null;
+				newField.AddressStatusField = pw_cc_bs_jQuery('#entityStatusField').val() ? pw_cc_bs_jQuery('#entityStatusField').val() : null;
+				if (isVersionPro) {
+					newField.CountryRelationshipField = pw_cc_bs_jQuery('#entityCountryRelationshipField').val() ? pw_cc_bs_jQuery('#entityCountryRelationshipField').val() : null;
+					newField.StateRelationshipField = pw_cc_bs_jQuery('#entityStateRelationshipField').val() ? pw_cc_bs_jQuery('#entityStateRelationshipField').val() : null;
+					newField.ZipCodeRelationshipField = pw_cc_bs_jQuery('#entityZipcodeRelationshipField').val() ? pw_cc_bs_jQuery('#entityZipcodeRelationshipField').val() : null;
+					saveCustomFields(newField);
+				}
+				document.getElementById('{!$Component.hdnNewEditedField}').value = pw_cc_bs_jQuery.toJSON(newField);
+				saveFieldAction();
+			}
+			
+	   		function showWaitPanel() {
+	   			pw_cc_bs_jQuery('td[id^=tdField],#divNoFields').hide();
+	   			pw_cc_bs_jQuery('td.tdWait').show();
+	   		}
+	   		
+	   		function hideWaitPanel() {
+	   			pw_cc_bs_jQuery('td.tdWait').hide();
+	   			pw_cc_bs_jQuery('td[id^=tdField],#divNoFields').show();
+	   		}
+	   		
+	   		function showPleaseWait() {
+	   			blockUI('dlgWait');
+	   		}
+	   		
+	   		function hidePleaseWait() {
+	   			unblockUI();
+	   		}
+	   		
+			function setCheckbox(checkboxElement, value) {
+				if (value)
+					checkboxElement.attr('checked', 'checked');
+				else
+					checkboxElement.removeAttr('checked');
+			}
+			
+			function getCheckbox(checkboxElement) {
+				return checkboxElement.attr('checked');
+			}
+			
+			function getTableSize(tableId) {
+				return pw_cc_bs_jQuery('#' + tableId + '> tbody > tr.dataRow').length;
+			}
+						
+			function saveAll() {
+				saveCountriesState();
+				document.getElementById('hdnError').value = 'false';
+				saveAllAction();
+			}
+			
+			function saveCountriesState() {
+				pw_cc_bs_jQuery.each(changedCountries, function (i, name) {
+					var country = allCountries[name];
+					country.Enabled = (pw_cc_bs_jQuery('#selectedCountries option[value=' + country.Id + ']').length > 0);
+					country.AllowOnlyListedStates = (pw_cc_bs_jQuery('#selectedCountries_listedstate option[value=' + country.Id + ']').length > 0);
+					country.IsStateMandatory = (pw_cc_bs_jQuery('#selectedCountries_statemandatory option[value=' + country.Id + ']').length > 0);
+					country.ValidateZipCode = (pw_cc_bs_jQuery('#selectedCountries_zipvalidate option[value=' + country.Id + ']').length > 0);
+				});
+				document.getElementById('{!$Component.hdnAllCountries}').value = pw_cc_bs_jQuery.toJSON(allCountries);
+				var countriesToSave = pw_cc_bs_jQuery.parseJSON(document.getElementById('{!$Component.hdnChangedCountries}').value);
+				if (!countriesToSave)
+					countriesToSave = [];
+				addUnique(countriesToSave, changedCountries);
+				if (countriesToSave.length > 0)
+					document.getElementById('{!$Component.hdnChangedCountries}').value = pw_cc_bs_jQuery.toJSON(countriesToSave);
+				else
+					document.getElementById('{!$Component.hdnChangedCountries}').value = '[]';
+				changedCountries = [];
+			}
+
+	   		pw_cc_bs_jQuery(document).ready(function() {
+				allCountries = pw_cc_bs_jQuery.parseJSON(document.getElementById('{!$Component.hdnAllCountries}').value);
+				
+				if ({!IsEditFieldsMode}) {
+					pw_cc_bs_jQuery('div[id$=editCustomFieldsDlg] h2').css('width', 'auto');					
+					fillEditDialogFields();
+				<apex:outputPanel layout="none" rendered="{!IsVersionPro}">
+					refreshCustomFieldTable();
+				</apex:outputPanel>
+				}
+				else if ({!IsEditCountryMode}) {
+				<apex:outputPanel layout="none" rendered="{!IsVersionPro}">
+					fillZipCodeDlg();
+					pw_cc_bs_jQuery('#slctZipCodeValidate').change(function(){
+						showZipCodeRegExpBySelectedCountry(pw_cc_bs_jQuery('#slctZipCodeValidate').val());
+					});
+	
+					pw_cc_bs_jQuery('#txtZipCodeRegExp').change(function(){
+						var countryId = pw_cc_bs_jQuery('#slctZipCodeValidate option:selected').val(); 
+						countryRegExp[countryId].zipCodeRegExp = pw_cc_bs_jQuery('#txtZipCodeRegExp').val();
+						addUnique(changedCountries, [pw_cc_bs_jQuery('#slctZipCodeValidate option:selected').text()]);
+					});
+	
+					pw_cc_bs_jQuery('#txtZipCodeFailMsg').change(function(){
+						var countryId = pw_cc_bs_jQuery('#slctZipCodeValidate option:selected').val(); 
+						countryRegExp[countryId].zipCodeFailMsg = pw_cc_bs_jQuery('#txtZipCodeFailMsg').val();
+						addUnique(changedCountries, [pw_cc_bs_jQuery('#slctZipCodeValidate option:selected').text()]);
+					});
+				</apex:outputPanel>
+				}
+				else {
+				<apex:outputPanel layout="none" rendered="{!IsVersionPro}">
+					fillZipCodeRegExpressionsTable();
+				</apex:outputPanel>
+					pw_cc_bs_jQuery('div.pbSubheader').css('color', 'black');					
+					
+					createUndoAction().resetAll();
+					
+					if ({!IsValidatedFieldsChanged}) {
+						changeValidatedFieldsStatus();
+					}
+					var countriesToSave = pw_cc_bs_jQuery.parseJSON(document.getElementById('{!$Component.hdnChangedCountries}').value);
+					if (countriesToSave && countriesToSave.length > 0) {
+						pw_cc_bs_jQuery('input[id$=hdnChangedCountries]').trigger('change');
+					}
+					setOptionsStatus();
+				}
+	   		});            
+    	</script>
+    	
+    	<apex:sectionHeader title="ProvenWorks {!IF(IsVersionPro, 'AddressTools', 'CountryComplete')}" />
+    	
+  		<apex:outputPanel id="install_out">
+            <input type="hidden" id="hdnCountSteps" value="{!CountInstallSteps}" />
+            <input type="hidden" id="hdnError" value="{!IsError}" />
+            <apex:pageMessages rendered="{!IsError}" />
+        </apex:outputPanel>
+        
+        <div id="dlgProgress" style="text-align:center;display:none;">
+		    <div id="progressDiv" style="border:solid 1px #000000;padding:1px;width:350px;background-color:#F3F3EC;text-align:left;">
+		        <span id="progressBar" style="background-color:#EF2B2D;width:0px;height:50px;overflow:hidden;display:inline-block;"></span>
+		    </div>
+			<div id="installingDiv" style="width:350px;">Installing, please wait...</div>
+		    <div id="resultDiv" style="width:350px;">
+		    	<div><b>Defaults installed</b></div>
+		    	<div style="text-align:justify;">Please <span style="color:red;text-decoration:underline;">clear your browser's cache</span> to ensure that the new values are available to the sidebar. The JavaScript resource will automatically reload for users within 24 hours of install.</div>
+		    	<div>
+		    		<input id="btnOk" type="button" class="btn" value="OK" onclick="unblockUI();" />
+		    	</div>
+		    </div>
+		</div>
+		
+		<div id="dlgWait" style="display:none;">
+	    	<div>Please wait...</div>
+		</div>
+		
+		<apex:actionStatus id="waitingStatus" onstart="showPleaseWait()" onstop="hidePleaseWait()" />
+		
+        <apex:tabPanel switchType="client" contentClass="contentClass" headerClass="headerClass" activeTabClass="activeTab" inactiveTabClass="inactiveTab" value="{!ActiveTab}">	    
+		    <apex:tab label="Installation" name="Installation" ontabenter="initTabs('Installation');">
+		        <apex:actionFunction name="beginInstall" action="{!BeginInstall}" oncomplete="insertBatch();" rerender="install_out">
+		        	<apex:param name="lang" assignTo="{!SelectedLanguage}" value="en" />
+		        	<apex:param name="onlySample" assignTo="{!OnlySample}" value="false" />
+		        </apex:actionFunction>
+		        <apex:actionFunction name="insertMore" action="{!InsertCurrentBatch}" oncomplete="insertBatch();" rerender="buttonDiv, install_out, countries_out, validate_out, validatedFields">
+		            <apex:param name="step" assignTo="{!CurrentInstallStep}" value="1" />
+		        </apex:actionFunction>        
+		        <apex:pageBlock id="pbInstall" title="Step 1: Install Defaults" rendered="{!CanEditSettings}">
+					<apex:outputPanel id="buttonDiv" layout="block">
+					    <div>Select your language and click the button below to install the default country<span style="display:{!IF(IsVersionPro,'inline','none')};">, state and Zip code</span> list together with default settings. Note: All users will see the country names in the selected language regardless of their local language. <b>Reference data is only populated once and cannot be automatically updated by ProvenWorks, please monitor the appropriate ISO<span style="display:{!IF(IsVersionPro,'inline','none')};"> and / or national postal</span> services for appropriate updates for your organization.</b></div>
+					    <div>
+					    	<table>
+					    		<tr>
+					    			<td style="width:130px;">
+						    			<apex:selectList id="languageList" style="width:100%;" value="{!SelectedLanguage}" size="0">
+							    	        <apex:selectOptions value="{!LanguageOptions}" />
+							            </apex:selectList>
+					    			</td>
+					    			<td style="text-align:left;"><input type="button" class="btn" value="Install Defaults" onclick="installCustoms();" /></td>
+					    		</tr>
+					    		<tr style="display:{!IF(IsVersionPro, 'table-row', 'none')};">
+					    			<td colspan="2"><apex:inputCheckBox id="chkOnlySample" value="{!OnlySample}"/><apex:outputLabel for="chkOnlySample" value="Only install sample data (check for config-only sandboxes & developer orgs)"/></td>
+					    		</tr>
+					    	</table>
+					    </div> 
+					    <br />
+					    <div>Select a country and click the button below to populate a default country value for all users.<br />The "QuickComplete Country" field in user pages (Setup->Admin Setup->Manage Users->Users) can be changed for user specific customization.</div>
+					    <div>
+					    	<table>
+					    		<tr>
+					    			<td>
+						    			<apex:selectList id="quickcompletecountryList" style="width:130px;" value="{!SelectedQuickCompleteCountry}" size="0">
+							    	        <apex:selectOptions value="{!QuickCompleteCountryOptions}" />
+							            </apex:selectList>
+					    			</td>
+					    			<td><apex:commandButton value="Install" action="{!PopulateQuickCompleteCountry}" /></td>
+					    		</tr>
+					    	</table>
+					    </div>                                                                  
+					</apex:outputPanel>
+				</apex:pageBlock>
+				<apex:pageBlock title="Step 2: Fix existing Data and Enable Enhancements (Optional)" rendered="{!CanEditSettings}">			
+					<table>
+						<tr>
+							<td>
+								<span>Country Detection finds and suggests fixes for your existing irregular and missing country data. Try it free on the Country Detection tab with the 20 lookups included with your {!IF(IsVersionPro, 'AddressTools', 'CountryComplete')} Install.</span>
+								<br />
+								<input type="button" class="btn" value="Purchase Lookups" onclick="buyAdditionalCredits('300377345');return false;" />
+							</td>
+						</tr>
+						<tr>
+							<td>
+								<span>Address Validation validates your addresses for mail deliverability down to the street level in countries where data is available. Support for Addresses in over 240 countries!</span>
+								<br />
+								<input type="button" class="btn" value="Purchase Validations" onclick="buyAdditionalCredits('300454020');return false;" />
+							</td>
+						</tr>
+						<tr>
+							<td><a href="http://www.provenworks.com/media/2258/countrycomplete%20pricing%20guide.docx" title="Pricing Guide">Pricing Guide</a></td>
+						</tr>
+					</table>
+				</apex:pageBlock>			
+				<apex:pageBlock title="Step 3: Enable Sidebar Components" rendered="{!CanEditSettings}">	
+					<ol style="padding:0; margin:0pt;">
+					    <li>Add the CountryComplete and Address Validation components to the Home Page Layout. Navigate to the Setup section and expand Customize->Home->Home Page Layouts, and be sure to save once you have added the components.</li>
+					    <li>To enable the sidebar components on every form (recommended), navigate to Setup then go to Customize->User Interface, check "Show Custom Sidebar Components on All Pages" under the Sidebar section.</li>
+					</ol>	
+				</apex:pageBlock>
+				<apex:pageBlock title="Step 4: Customize and Enable" rendered="{!CanEditSettings}">			
+					<div>{!IF(IsVersionPro, 'AddressTools', 'CountryComplete')} is fully customizable; choose which countries to display, and how strict to make your validation rules on the settings tab. Once you have made your customizations, check “Validation and Standardization Enabled” and save to begin validation and standardization of your chosen fields!</div>
+				</apex:pageBlock>
+		        <apex:pageBlock rendered="{!CanEditSettings == false}">
+					{!IF(IsVersionPro, 'AddressTools', 'CountryComplete')} Settings can only modified by a user with the ModifyAllData permission. If this does not fit your requirements please contact <a href="mailto:support@provenworks.com" title="Support">support@provenworks.com</a>.
+				</apex:pageBlock>
+	       	</apex:tab>
+	
+	        <apex:tab label="Settings" name="Settings" rendered="{!CanEditSettings}" ontabenter="initTabs('Settings');">
+		        <input type="hidden" id="hdnValidatedFields" value="{!AllValidatedFields}" />
+		        <apex:inputHidden id="hdnAllCountries" value="{!AllCountries}" />
+		        <apex:inputHidden id="hdnChangedCountries" value="{!ChangedCountries}" />
+		  		
+		  		<apex:outputPanel id="outEntityFields">
+		            <input type="hidden" id="hdnEntityFields" value="{!AllEntityFields}" />
+		        </apex:outputPanel>
+		        
+		        <apex:inputHidden id="hdnSelectedEntityName" value="{!SelectedEntityName}" />
+		        <apex:inputHidden id="hdnSelectedCountryField" value="{!SelectedCountryField}" />
+		        <apex:inputHidden id="hdnSelectedCountryId" value="{!SelectedCountryId}" />
+		        
+		        <apex:inputHidden id="hdnEditedEntity" value="{!EditedEntity}" />
+		        <apex:inputHidden id="hdnEditedCountryField" value="{!EditedCountryField}" />
+
+		       	<apex:pageBlock id="pbStValSettings" title="Standardization and Validation Settings"  rendered="{!AND(NOT(IsEditFieldsMode), NOT(IsEditCountryMode))}">
+		        	<apex:pageBlockButtons location="bottom">
+		            	<apex:commandButton value="Save All" onclick="saveAll();return false;" />
+		            	<input type="button" class="btn" value="Cancel" action="undo" />
+		            </apex:pageBlockButtons>
+					<apex:panelGroup >
+						<apex:outputPanel id="validate_out">
+				 			<div>
+								<apex:inputCheckbox id="countryCompleteEnabled" value="{!CountryCompleteEnabled}" onclick="setOptionsStatus();" />
+								<apex:outputLabel for="countryCompleteEnabled" value="Validation and Standardization Enabled" style="font-weight: bold;" />
+				            </div>
+				            <div>
+								<apex:inputCheckbox id="runOnce" value="{!RunOnce}" />
+								<apex:outputLabel id="runOnceLabel" for="runOnce" value="Run the {!IF(IsVersionPro, 'AddressTools', 'CountryComplete')} trigger to validate / standardize objects only once (useful if you have multiple triggers on validated objects)" />
+								<label for="{!$Component.pbStValSettings.runOnce}" id="runOnceText" style="display:none;" disabled="disabled">Run the {!IF(IsVersionPro, 'AddressTools', 'CountryComplete')} trigger to validate / standardize objects only once (useful if you have multiple triggers on validated objects)</label> 
+				            </div>
+							<div>
+								<apex:inputCheckbox id="onlyOperateWhenChanged" value="{!OnlyOperateWhenChanged}" />
+								<apex:outputLabel id="onlyOperateWhenChangedLabel" for="onlyOperateWhenChanged" value="{!OnlyOperateWhenChangedText}" />
+								<label for="{!$Component.pbStValSettings.onlyOperateWhenChanged}" id="onlyOperateWhenChangedText" style="display:none;" disabled="disabled">{!OnlyOperateWhenChangedText}</label> 
+				            </div>
+				            <div>
+					    		<apex:inputCheckBox id="quickCompleteCountryEnabled" value="{!QuickCompleteCountryEnabled}"/>
+					    		<apex:outputLabel for="quickCompleteCountryEnabled" value="Enable QuickComplete Country"/>
+				            </div>  
+				            <div style="display:{!IF(IsVersionPro, 'block', 'none')};">
+					    		<apex:inputCheckBox id="zipCodeLookupEnabled" value="{!ZipCodeLookupEnabled}"/>
+					    		<apex:outputLabel for="zipCodeLookupEnabled" value="Enable ZIP Codes Lookup"/>
+				            </div>  
+				            <br />
+				            <table>
+				            	<tr style="display:{!IF(IsVersionPro, '', 'none')};">
+				            		<td><apex:outputLabel rendered="{!IsVersionPro}" for="countryCodeList" value="Store country value as " /></td>
+				            		<td>
+										<apex:selectList rendered="{!IsVersionPro}" id="countryCodeList" style="width:200px;" value="{!StoreCountryInCode}" size="0">
+								           <apex:selectOptions value="{!StoreCountryCodeOptions}" />
+					                    </apex:selectList>			             
+				            		</td>
+				            	</tr>
+				            	<tr>
+				            		<td><apex:outputLabel for="txtAlertEmail" value="Batch Address Validation alert email address: " /></td>
+				            		<td><apex:inputText id="txtAlertEmail" style="width:200px;" value="{!AlertEmail}" /></td>
+				            	</tr>
+				            </table>
+			            </apex:outputPanel>
+			     	</apex:panelGroup>
+			     </apex:pageBlock>
+				     <apex:pageBlock title="Fields to Validate / Standardize"  rendered="{!AND(NOT(IsEditFieldsMode), NOT(IsEditCountryMode))}">
+				     	<apex:pageBlockButtons location="bottom">
+				     		<apex:commandButton value="Add" onclick="openAddDialog();return false;" />
+			            	<apex:commandButton value="Reset to Defaults" onclick="resetDefaults();return false;" />
+			            	<apex:commandButton value="Save All" onclick="saveAll();return false;" />
+			            	<input type="button" class="btn" value="Cancel" action="undo" />   	
+			            </apex:pageBlockButtons>
+				     	<apex:panelGroup >
+				     		<input id="hdnValidatedFieldsStatusChanged" type="hidden" value="" />
+							<apex:actionFunction name="resetDefaultsAction" action="{!ResetValidatedFieldsToDefaults}" />
+							<apex:actionFunction name="saveAllAction" action="{!SaveAll}" />
+							
+							<apex:actionFunction name="removeValidatedFieldAction" action="{!RemoveValidatedField}" />
+							<apex:actionFunction name="openEditDialogAction" action="{!ShowEditDialog}" />
+							<apex:actionFunction name="openAddDialogAction" action="{!ShowAddDialog}" />
+		
+							<apex:actionFunction name="openZipCodeDialogAction" action="{!OpenZipCodeDialog}" />
+			
+							<apex:outputPanel id="validatedFields">
+								<apex:pageBlockTable value="{!FieldToValidateList}" var="field">
+									<apex:column >
+										<div style="width:50px">
+											<a href="javascript:openEditDialog('{!JSINHTMLENCODE(field.pw_cc__Object__c)}', '{!JSINHTMLENCODE(field.pw_cc__CountryField__c)}');">Edit</a> | <a href="javascript:removeValidatedField('{!JSINHTMLENCODE(field.pw_cc__Object__c)}', '{!JSINHTMLENCODE(field.pw_cc__CountryField__c)}');">Del</a>
+										</div>
+										<apex:facet name="header">
+											Action
+										</apex:facet>
+									</apex:column>
+									<apex:column headerValue="Object">
+										<label style="padding-left:5px;">{!field.pw_cc__Object__c}</label>
+									</apex:column>
+									<apex:column headerValue="Country Field">
+										<label style="padding-left:5px;">{!field.pw_cc__CountryField__c}</label>
+									</apex:column>
+									<apex:column headerValue="State Field" rendered="{!IsVersionPro}">
+										<apex:outputPanel rendered="{!field.pw_cc__StateField__c != null}">
+			                						<label style="padding-left:5px;">{!field.pw_cc__StateField__c}</label>
+										</apex:outputPanel>
+										<apex:outputPanel rendered="{!field.pw_cc__StateField__c == null}">
+			                						&nbsp;
+			                					</apex:outputPanel>
+									</apex:column>
+									<apex:column headerValue="Address Status Field">
+										<label style="padding-left:5px;">{!field.pw_cc__AddressStatusField__c}</label>
+									</apex:column>
+									<apex:column >
+										<apex:outputPanel rendered="{!NOT(field.pw_cc__IsCountryMandatory__c)}">
+			                						<img height="16" width="21" title="Not Mandatory" class="checkImg" alt="Not Mandatory" src="/img/checkbox_unchecked.gif"></img>
+										</apex:outputPanel>
+			     						<apex:outputPanel rendered="{!field.pw_cc__IsCountryMandatory__c}">
+			                						<img height="16" width="21" title="Mandatory" class="checkImg" alt="Mandatory" src="/img/checkbox_checked.gif"></img>
+			                					</apex:outputPanel>
+			                					<apex:facet name="header">
+											<span title="Is Country Mandatory">Country Mandatory</span>
+										</apex:facet>
+									</apex:column>
+									<apex:column >
+										<apex:outputPanel rendered="{!NOT(field.pw_cc__AllowOnlyListedCountries__c)}">
+			                						<img height="16" width="21" title="Allow Any Value" class="checkImg" alt="Allow Any Value" src="/img/checkbox_unchecked.gif"></img>
+										</apex:outputPanel>
+			     						<apex:outputPanel rendered="{!field.pw_cc__AllowOnlyListedCountries__c}">
+			                						<img height="16" width="21" title="Allow Only Listed Countries" class="checkImg" alt="Allow Only Listed Countries" src="/img/checkbox_checked.gif"></img>
+			                					</apex:outputPanel>
+			                					<apex:facet name="header">
+											<span title="Only Listed Countries">Only Listed Countries</span>
+										</apex:facet>
+									</apex:column>
+									<apex:column >
+										<apex:outputPanel rendered="{!NOT(field.pw_cc__Standardize__c)}">
+			                						<img height="16" width="21" title="Do not standardize" class="checkImg" alt="Do not standardize" src="/img/checkbox_unchecked.gif"></img>
+										</apex:outputPanel>
+			     						<apex:outputPanel rendered="{!field.pw_cc__Standardize__c}">
+			                						<img height="16" width="21" title="Standardize" class="checkImg" alt="Standardize" src="/img/checkbox_checked.gif"></img>
+			                					</apex:outputPanel>
+			                					<apex:facet name="header">
+											<span title="Standardize countries">Standardize</span>
+										</apex:facet>
+									</apex:column>												
+								</apex:pageBlockTable>
+			            	</apex:outputPanel>
+			        	</apex:panelGroup>
+			        </apex:pageBlock>
+			    	<apex:outputPanel id="countries_out">
+				        <apex:pageBlock id="pbCountrySpecSet" title="Country Specific Settings"  rendered="{!AND(NOT(IsEditFieldsMode), NOT(IsEditCountryMode))}">
+				      		<apex:pageBlockButtons location="bottom">
+				            	<apex:commandButton value="Save All" onclick="saveAll();return false;" />
+				            	<input type="button" class="btn" value="Cancel" action="undo" />
+				            </apex:pageBlockButtons>
+				     		<apex:panelGroup > 
+					     		<table>
+					     			<tr>
+							    		<td> 
+								            <apex:outputPanel >
+								     			<c:duelingListBox leftId="selectedCountries" rightId="availableCountries" leftCaption="Displayed Countries" rightCaption="Hidden Countries" leftData="{!SelectedCountries}" rightData="{!AvailableCountries}" onadd="addCountries('#selectedCountries', '#availableCountries')" onremove="removeCountries('#selectedCountries', '#availableCountries')"></c:duelingListBox>
+							     			</apex:outputPanel>					
+							            </td>
+										<td style="padding-left:40px;"> 
+								            <apex:outputPanel rendered="{!IsVersionPro}">
+												<c:duelingListBox leftId="selectedCountries_listedstate" rightId="availableCountries_listedstate" leftCaption="Allow only listed states" rightCaption="Allow any state values" leftData="{!SelectedCountriesListedState}" rightData="{!AvailableCountriesListedState}" onadd="addCountries('#selectedCountries_listedstate', '#availableCountries_listedstate')" onremove="removeCountries('#selectedCountries_listedstate', '#availableCountries_listedstate')"></c:duelingListBox>
+											</apex:outputPanel>		                
+							            </td>
+						            </tr>
+						            <tr>
+										<td> 
+								            <apex:outputPanel rendered="{!IsVersionPro}">
+												<c:duelingListBox leftId="selectedCountries_statemandatory" rightId="availableCountries_statemandatory" leftCaption="State is mandatory" rightCaption="State is not mandatory" leftData="{!SelectedCountriesMandatoryState}" rightData="{!AvailableCountriesMandatoryState}" onadd="addCountries('#selectedCountries_statemandatory', '#availableCountries_statemandatory')" onremove="removeCountries('#selectedCountries_statemandatory', '#availableCountries_statemandatory')"></c:duelingListBox>
+											</apex:outputPanel>                           
+							            </td>
+										<td style="padding-left:40px;">   
+											<apex:outputPanel rendered="{!IsVersionPro}">
+												<c:duelingListBox leftId="selectedCountries_zipvalidate" rightId="availableCountries_zipvalidate" leftCaption="Validate ZIP Code Pattern" rightCaption="Allow any ZIP Code values" leftData="{!SelectedCountriesValidateZipCode}" rightData="{!AvailableCountriesValidateZipCode}" onadd="addZipValidateCountries('#selectedCountries_zipvalidate', '#availableCountries_zipvalidate')" onremove="removeZipValidateCountries('#selectedCountries_zipvalidate', '#availableCountries_zipvalidate')"></c:duelingListBox>
+											</apex:outputPanel>                        
+							            </td>
+						            </tr>
+					            </table>
+			
+								<apex:pageBlockSection id="pbsZipCodeRegExpressions" showHeader="false" rendered="{!IsVersionPro}" collapsible="false" columns="1">
+							    	<h3>Validate ZIP Code Pattern</h3>
+							    	<div style="text-align:left;margin: 10px 0;">
+										Values entered in to the Zip-code field for the Countries listed below will have the pattern of the value checked providing the regular expression for the country is not empty.
+							    	</div>
+									<table id="tblZipCodeRegExpressions" class="list" cellspacing="0" cellpadding="0" border="0">
+										<thead class="rich-table-thead">
+											<tr class="headerRow">
+												<th class="headerRow" style="width:40px;">Action</th>
+												<th class="headerRow" style="width:300px;">Country</th>
+												<th class="headerRow">Fail Message</th>
+												<th class="headerRow">Regular Expression</th>
+											</tr>
+										</thead>
+										<tbody>
+										</tbody>
+									</table>
+								</apex:pageBlockSection>	
+				        	</apex:panelGroup>
+						</apex:pageBlock>
+					</apex:outputPanel>
+		
+					<apex:inputHidden id="hdnNewEditedField" value="{!NewEditedField}" />
+					
+					<apex:actionFunction name="updateEntityFieldsAction" action="{!UpdateEntityFields}" reRender="outEntityFields,editFieldDialog,proContent" status="waitingStatusEditing" oncomplete="updateEditDialogFields();" />
+					<apex:actionFunction name="saveFieldAction" action="{!SaveField}" />
+					<apex:actionFunction name="cancelAction" action="{!CancelEditMode}" />
+					
+					<apex:actionStatus id="waitingStatusEditing" onstart="showWaitPanel()" onstop="hideWaitPanel()" />		                
+		
+					<apex:pageBlock id="FieldAddEditBlock" mode="edit" title="Edit field" rendered="{!IsEditFieldsMode}">
+				    	<apex:pageBlockButtons id="blockButtons" location="bottom" >
+			            	<input id="btnAddField" type="button" class="btn" value="{!IF(IsNewField, 'Add', 'Apply')}" onclick="saveField();" />
+							<span><input type="button" class="btn" value="Cancel" onclick="cancelAction()" /></span>					
+				    	</apex:pageBlockButtons>
+		    			<apex:outputText style="margin:0 10px;" value="Select object and country field you want to validate on input." />
+				    	<div style="margin:10px 10px;display:{!IF(IsVersionPro, 'block', 'none')};text-align:left;font-style:italic;">
+							Please note: Triggers are included within this package for Accounts, Contacts, Leads and Contracts, however all other standard and custom objects require a custom trigger, check the installation guide or contact <a href='mailto:support@provenworks.com'>ProvenWorks Support</a> for the required code.
+						</div>
+				    	<table class="detailList" cellspacing="0" cellpadding="0" border="0">
+				    		<tr>
+				    			<td class="labelCol"><apex:outputLabel value="Object" for="entityName" /></td>
+				    			<td class="data2Col">
+						    		<apex:selectList id="entityName" style="width:180px;" onchange="updateEntityFields()" value="{!SelectedEntityName}" size="0">
+						    	        <apex:selectOptions value="{!EntityNamesOptions}" />
+						            </apex:selectList>
+				    			</td>
+				    		</tr>
+			    		</table>
+				    	<div id="divCountryFields" style="text-align:left;">
+				    		<table class="detailList" cellspacing="0" cellpadding="0" border="0">
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="Country Field" for="entityCountryField" /></td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    			<td class="data2Col" id="tdField1">
+										<select id="entityCountryField" style="width:180px;" onchange="updateFields(pw_cc_bs_jQuery(this).val(), pw_cc_bs_jQuery('#entityStateField').val(), pw_cc_bs_jQuery('#entityZipCodeField').val(), pw_cc_bs_jQuery('#entityCountryRelationshipField').val(), pw_cc_bs_jQuery('#entityStateRelationshipField').val(),pw_cc_bs_jQuery('#entityStatusField').val(),pw_cc_bs_jQuery('#entityCityField').val(),pw_cc_bs_jQuery('#entityStreetField').val(),pw_cc_bs_jQuery('#entityZipcodeRelationshipField').val())" />
+					    			</td>
+					    		</tr>
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="State Field" for="entityStateField" /></td>
+					    			<td class="data2Col" id="tdField2">
+										<select id="entityStateField" style="width:180px;" onchange="updateFields(pw_cc_bs_jQuery('#entityCountryField').val(), pw_cc_bs_jQuery(this).val(), pw_cc_bs_jQuery('#entityZipCodeField').val(), pw_cc_bs_jQuery('#entityCountryRelationshipField').val(), pw_cc_bs_jQuery('#entityStateRelationshipField').val(),pw_cc_bs_jQuery('#entityStatusField').val(),pw_cc_bs_jQuery('#entityCityField').val(),pw_cc_bs_jQuery('#entityStreetField').val(),pw_cc_bs_jQuery('#entityZipcodeRelationshipField').val())" />
+					    			</td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    		</tr>
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="City Field" for="entityCityField" /></td>
+					    			<td class="data2Col" id="tdField3">
+										<select id="entityCityField" style="width:180px;" onchange="updateFields(pw_cc_bs_jQuery('#entityCountryField').val(), pw_cc_bs_jQuery('#entityStateField').val(), pw_cc_bs_jQuery('#entityZipCodeField').val(), pw_cc_bs_jQuery('#entityCountryRelationshipField').val(), pw_cc_bs_jQuery('#entityStateRelationshipField').val(),pw_cc_bs_jQuery('#entityStatusField').val(),pw_cc_bs_jQuery(this).val(),pw_cc_bs_jQuery('#entityStreetField').val(),pw_cc_bs_jQuery('#entityZipcodeRelationshipField').val())" />
+					    			</td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    		</tr>
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="Street Field" for="entityStreetField" /></td>
+					    			<td class="data2Col" id="tdField4">
+										<select id="entityStreetField" style="width:180px;" onchange="updateFields(pw_cc_bs_jQuery('#entityCountryField').val(), pw_cc_bs_jQuery('#entityStateField').val(), pw_cc_bs_jQuery('#entityZipCodeField').val(), pw_cc_bs_jQuery('#entityCountryRelationshipField').val(), pw_cc_bs_jQuery('#entityStateRelationshipField').val(),pw_cc_bs_jQuery('#entityStatusField').val(),pw_cc_bs_jQuery('#entityCityField').val(),pw_cc_bs_jQuery(this).val(),pw_cc_bs_jQuery('#entityZipcodeRelationshipField').val())" />
+					    			</td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    		</tr>
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="ZIP Code Field" for="entityZipCodeField" /></td>
+					    			<td class="data2Col" id="tdField5">
+										<select id="entityZipCodeField" style="width:180px;" onchange="updateFields(pw_cc_bs_jQuery('#entityCountryField').val(), pw_cc_bs_jQuery('#entityStateField').val(), pw_cc_bs_jQuery(this).val(), pw_cc_bs_jQuery('#entityCountryRelationshipField').val(), pw_cc_bs_jQuery('#entityStateRelationshipField').val(),pw_cc_bs_jQuery('#entityStatusField').val(),pw_cc_bs_jQuery('#entityCityField').val(),pw_cc_bs_jQuery('#entityStreetField').val(),pw_cc_bs_jQuery('#entityZipcodeRelationshipField').val())" />
+					    			</td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    		</tr>
+					    		<apex:outputPanel layout="none" id="proContent" rendered="{!IsVersionPro}">
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="Country Lookup" for="entityCountryRelationshipField" /></td>
+					    			<td class="data2Col" id="tdField6">
+										<select id="entityCountryRelationshipField" style="width:180px;" onchange="updateFields(pw_cc_bs_jQuery('#entityCountryField').val(), pw_cc_bs_jQuery('#entityStateField').val(), pw_cc_bs_jQuery('#entityZipCodeField').val(), pw_cc_bs_jQuery(this).val(), pw_cc_bs_jQuery('#entityStateRelationshipField').val(),pw_cc_bs_jQuery('#entityStatusField').val(),pw_cc_bs_jQuery('#entityCityField').val(),pw_cc_bs_jQuery('#entityStreetField').val(),pw_cc_bs_jQuery('#entityZipcodeRelationshipField').val())" />
+					    			</td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    		</tr>
+					    		<tr id="StateSelectedRow">
+					    			<td class="labelCol"><apex:outputLabel value="State Lookup" for="entityStateRelationshipField" /></td>
+					    			<td class="data2Col" id="tdField7">
+										<select id="entityStateRelationshipField" style="width:180px;" onchange="updateFields(pw_cc_bs_jQuery('#entityCountryField').val(), pw_cc_bs_jQuery('#entityStateField').val(), pw_cc_bs_jQuery('#entityZipCodeField').val(), pw_cc_bs_jQuery('#entityCountryRelationshipField').val(),pw_cc_bs_jQuery(this).val(),pw_cc_bs_jQuery('#entityStatusField').val(),pw_cc_bs_jQuery('#entityCityField').val(),pw_cc_bs_jQuery('#entityStreetField').val(),pw_cc_bs_jQuery('#entityZipcodeRelationshipField').val())" />
+					    			</td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    		</tr>
+					    		<tr id="NoStateSelectedRow">
+					    			<td class="labelCol"><apex:outputLabel value="State Lookup" /></td>
+					    			<td class="data2Col" id="tdField8"><i>Choose a state field</i></td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    		</tr>
+					    		<tr id="ZipcodeSelectedRow">
+					    			<td class="labelCol"><apex:outputLabel value="Zip Code Lookup" for="entityZipcodeRelationshipField" /></td>
+					    			<td class="data2Col" id="tdField7">
+										<select id="entityZipcodeRelationshipField" style="width:180px;" onchange="updateFields(pw_cc_bs_jQuery('#entityCountryField').val(), pw_cc_bs_jQuery('#entityStateField').val(), pw_cc_bs_jQuery('#entityZipCodeField').val(), pw_cc_bs_jQuery('#entityCountryRelationshipField').val(),pw_cc_bs_jQuery('#entityStateRelationshipField').val(),pw_cc_bs_jQuery('#entityStatusField').val(),pw_cc_bs_jQuery('#entityCityField').val(),pw_cc_bs_jQuery('#entityStreetField').val(),pw_cc_bs_jQuery(this).val())" />
+					    			</td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    		</tr>
+					    		<tr id="NoZipcodeSelectedRow">
+					    			<td class="labelCol"><apex:outputLabel value="Zip Code Lookup" /></td>
+					    			<td class="data2Col" id="tdField8"><i>Choose a Zip code field</i></td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    		</tr>
+					    		</apex:outputPanel>
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="Address Status Field" for="entityStatusField" /></td>
+					 				<td class="tdWait">
+					 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+					 				</td>
+					    			<td class="data2Col" id="tdField9">
+										<select id="entityStatusField" style="width:180px;" onchange="updateFields(pw_cc_bs_jQuery('#entityCountryField').val(), pw_cc_bs_jQuery('#entityStateField').val(), pw_cc_bs_jQuery('#entityZipCodeField').val(), pw_cc_bs_jQuery('#entityCountryRelationshipField').val(), pw_cc_bs_jQuery('#entityStateRelationshipField').val(),pw_cc_bs_jQuery(this).val(),pw_cc_bs_jQuery('#entityCityField').val(),pw_cc_bs_jQuery('#entityStreetField').val(),pw_cc_bs_jQuery('#entityZipcodeRelationshipField').val())" />
+					    			</td>
+					    		</tr>
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="Country Mandatory" for="chkCountryMandatory" /></td>
+					    			<td class="data2Col"><input type="checkbox" id="chkCountryMandatory" /></td>
+					    		</tr>
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="Only Listed Countries" for="chkAllowOnlyListedCountries" /></td>
+					    			<td class="data2Col"><input type="checkbox" id="chkAllowOnlyListedCountries" /></td>
+					    		</tr>
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="Standardize" for="chkStandardize" title="Change common alternative names to agreed standards" /></td>
+					    			<td class="data2Col"><input type="checkbox" checked="checked" id="chkStandardize" /></td>
+					    		</tr>
+					    		<tr>
+					    			<td class="labelCol"><apex:outputLabel value="Support street-level Address Validation" for="chkUseForAddressValidation" /></td>
+					    			<td class="data2Col"><input type="checkbox" checked="checked" id="chkUseForAddressValidation" /></td>
+					    		</tr>
+				    		</table>
+				    	</div>
+				    	<div id="divNoCountryFields" style="padding-top:8px;">
+			    			<div id="divNoFields" style="margin:0 10px;"><i>No fields to add</i></div>
+							<div id="divWait">
+								<table style="width:100%;">
+									<tr>
+						 				<td class="tdWait">
+						 					<img src="{!URLFOR($Resource.CountryCompleteResources, '/img/loading.gif')}" />
+						 				</td>
+									</tr>
+								</table>
+							</div>
+						</div>			    	
+					</apex:pageBlock>
+		    		<apex:pageBlock id="editCustomFieldsDlg" title="Edit Custom Fields" rendered="{!AND(IsVersionPro,IsEditFieldsMode)}">
+						<apex:pageBlockButtons location="top">
+		     				<apex:commandButton value="Add" onclick="appendCustomFieldIdRow('','','','','','');updateCustomFieldTableHeader();return false;" />
+						</apex:pageBlockButtons>
+						<apex:pageBlockSection columns="1">
+						   	<div style="text-align:left;margin-bottom:10px;">
+								Populate this section if you want to add Autocompletion, ZIP Codes Lookup or Street-level Address Validation to Visualforce pages or custom address fields. Use this section also to setup address status fields for street-level address validation on standard layouts for standard address fields.
+								<br/>
+								For a standard layout, find the field ID by clicking on the field name in the list of custom fields in the relevant setup menu. The field ID is the 15 characters that appear after 'salesforce.com/' in the URL of the field's page.
+								For a Visualforce layout, manually set the unique field ID for the HTML country input element in your page, and enter it below. (Visualforce page elements are automatically assigned HTML Ids if not specified, you can use your browser's developer console or a tool like Firebug to find the automatically generated IDs.)
+								<br/>
+								Note:
+								For Auto-completion, the country field ID is required.
+								For ZIP Codes Lookup, Zip code field ID is required.
+								For Street-level Address Validation, street field ID is required. For standard Salesforce address fields on standard layouts, you only need to populate the address status field ID leaving the rest of the fields empty.
+						   	</div>
+							<table id="tbCustomFieldEditTable" class="list" cellspacing="0" cellpadding="0" border="0">
+								<tbody>
+									<tr class="headerRow" style="display:none;" id="thNoRows">
+										<th class="noRowsHeader" scope="col"
+											style="background-color:#F8F8F8;background-image:none;border: 0 none;font-size:1em;font-weight:normal;">There is no custom field data entered for this field set</th>
+									</tr>
+									<tr class="headerRow" style="display:none;" id="thRows">
+										<th	class="actionColumn">Action</th>
+										<th class="headerRow">Country field Id</th>
+										<th class="headerRow">State field Id</th>
+										<th class="headerRow">PostalCode field Id</th>
+										<th class="headerRow">City field Id</th>
+										<th class="headerRow">Street field Id</th>
+										<th class="headerRow">Address Status field Id</th>
+									</tr>
+								</tbody>
+							</table>
+						</apex:pageBlockSection>
+						<apex:facet name="footer">
+							<table cellspacing="0" cellpadding="0" border="0">
+								<tbody>
+									<tr>
+										<td class="pbTitle">&nbsp;</td>
+										<td class="pbButtonb ">
+											<input id="btnAddField" type="button" class="btn" value="{!IF(IsNewField, 'Add', 'Apply')}" onclick="saveField();" />
+											<span><input type="button" class="btn" value="Cancel" onclick="cancelAction()" /></span>
+										</td>
+									</tr>
+								</tbody>
+							</table>
+						</apex:facet>
+					</apex:pageBlock>
+					<apex:pageBlock id="ZipCodeEditDialog" mode="edit" title="Edit ZipCode Regular Expressions" rendered="{!IsEditCountryMode}">
+				    	<apex:pageBlockButtons id="blockButtons" location="bottom" >
+			            	<input id="btnZipCodeDlgOK" type="button" class="btn" value='Apply' onclick="saveZipCodeRegExp()" />
+							<span><input type="button" id="btnZipCodeDlgCancel" class="btn" value="Cancel" onclick="cancelAction()" /></span>
+				    	</apex:pageBlockButtons>
+				    	<div style="text-align:left;margin: 10px 10px;">
+							Enter a regular expressions for ZIP Codes in the country selected below (i.e. ^\d{5}$ for a 5 digit expression) 
+							and a failure message for your users (i.e. "ZIP Code entry is not 5 digits.").<br/>
+							Regular expressions can be found <a target="_blank" href="http://exampleregex.provenworks.com">here</a>. 
+				    	</div>
+		
+				    	<table class="detailList" cellspacing="0" cellpadding="0" border="0" style="margin: 10px;width: auto;">
+				    		<tr>
+				    			<td class="labelCol"><apex:outputLabel value="Country" for="slctZipCodeValidate" /></td>
+				    			<td class="data2Col">
+			    					<select style="width:100%" id="slctZipCodeValidate" size="0" />
+				    			</td>
+				    		</tr>
+				    		<tr>
+				    			<td class="labelCol"><apex:outputLabel value="Fail message" for="txtZipCodeFailMsg" /></td>
+				    			<td class="data2Col"><input id="txtZipCodeFailMsg" style="width:100%" type="text" /></td>
+				    		</tr>
+				    		<tr>
+				    			<td class="labelCol"><apex:outputLabel value="Regular expression" for="txtZipCodeRegExp" /></td>
+				    			<td class="data2Col"><textarea style="width:100%" id="txtZipCodeRegExp" /></td>
+				    		</tr>
+			    		</table>
+					</apex:pageBlock>
+
+			</apex:tab>
+	
+			<apex:tab label="Purchase" name="Purchase" ontabenter="initTabs('Purchase');">
+				<apex:pageBlock id="pbPurchaseExtra" title="Credits for Pay-Per-Use Tools">
+	        		<apex:pageBlockButtons location="bottom">
+	        			<input type="button" class="btn" onclick="updateRemainingCreditList();return false;" value="Refresh" />
+		            </apex:pageBlockButtons>
+	        		<apex:panelGroup >
+						<apex:actionFunction name="updateRemainingCreditList" action="{!UpdateRemainingCreditList}" reRender="credits, install_out" status="waitingStatus">
+						</apex:actionFunction>	        		
+						<apex:outputPanel id="credits">
+				    		<div>Please see the {!IF(IsVersionPro, 'AddressTools', 'CountryComplete')} Pricing Guide on the&nbsp;<apex:outputPanel rendered="{!IsVersionPro}"><a href="http://appexchange.salesforce.com/listingDetail?listingId=a0N30000002zt9uEAA" target="_blank">{!IF(IsVersionPro, 'AddressTools', 'CountryComplete')} Appexchange page</a></apex:outputPanel><apex:outputPanel rendered="{!NOT(IsVersionPro)}"><a href="http://appexchange.salesforce.com/listingDetail?listingId=a0N30000001SqRFEA0" target="_blank">{!IF(IsVersionPro, 'AddressTools', 'CountryComplete')} Appexchange page</a></apex:outputPanel>&nbsp;for current pricing and Special Offer information.</div>
+				    		<br />
+				    		<apex:pageBlockTable rendered="{!NOT(IsRemainingCreditListEmpty)}" value="{!RemainingCreditList}" var="credit">
+					      		<apex:column headerValue="Service" value="{!credit.Service}" />
+								<apex:column headerValue="Licensed">
+			             			<apex:outputPanel rendered="{!NOT(credit.IsLicensed)}">
+										<img height="16" width="21" title="Not Licensed" class="checkImg" alt="Not Licensed" src="/img/checkbox_unchecked.gif"></img>
+									</apex:outputPanel>
+									<apex:outputPanel rendered="{!credit.IsLicensed}">
+										<img height="16" width="21" title="Licensed" class="checkImg" alt="Licensed" src="/img/checkbox_checked.gif"></img>
+									</apex:outputPanel>
+								</apex:column>
+								<apex:column headerValue="Credits Remaining" value="{!credit.CreditsRemaining}" />
+								<apex:column headerValue="Expiry Date">
+									<apex:outputPanel rendered="{!credit.CreditsExpiryDate != null}">
+										{!credit.CreditsExpiryDate}
+									</apex:outputPanel>
+									<apex:outputPanel rendered="{!credit.CreditsExpiryDate == null}">
+										&nbsp;
+									</apex:outputPanel>
+								</apex:column>
+			            		<apex:column headerValue="Purchase">
+			            			<input type="button" class="btn" onclick="buyAdditionalCredits('{!credit.ProductId}');return false;" value="Purchase Credits" />
+			            			<div style="display:none;">
+										<a id="btnPurchase{!credit.ProductId}" target="_blank" href="https://secure.shareit.com/shareit/checkout.html?hidecoupon=1&js=-1&PRODUCT[{!credit.ProductId}]=1">Purchase {!credit.Service} Credits</a>
+			        				</div>		            			
+			            		</apex:column>
+			        		</apex:pageBlockTable>
+			        		<apex:repeat rendered="{!NOT(IsRemainingCreditListEmpty)}" value="{!RemainingCreditList}" var="credit">
+								<apex:outputPanel layout="none" rendered="{!AND(NOT(ISNULL(credit.Note)), credit.Note != '')}">
+									<div style="font-size:10px;padding:3px 0 0 3px;">{!credit.Note}</div>
+								</apex:outputPanel>
+    						</apex:repeat>
+			        		<apex:outputPanel rendered="{!IsRemainingCreditListEmpty}">Click the&nbsp;<apex:commandLink action="{!UpdateRemainingCreditList}" reRender="credits, install_out" status="waitingStatus" value="[Refresh]"></apex:commandLink>&nbsp;button below to show your current credit entitlement</apex:outputPanel>
+		        		</apex:outputPanel>      				
+	        		</apex:panelGroup>	
+				</apex:pageBlock>
+				<apex:pageBlock id="pbPurchase" rendered="{!IsVersionPro}" title="Purchase user licenses">
+	                <apex:panelGroup >
+		                <div>Please consult the AddressTools&nbsp;<a target="_blank" href="http://sites.force.com/appexchange/listingDetail?listingId=a0N30000002zt9uEAA">AppExchange listing</a>&nbsp;page or alternatively enter the quantity of users below for a quotation in your local currency</div>
+		                <br />
+		                <div>
+		              		<table>
+		              			<tr>
+		              				<td><label for="txtLicenses">Users:</label>&nbsp;</td>
+		              				<td><div class="requiredInput"><div class="requiredBlock"></div><input type="text" id="txtLicenses" style="width:40px;"/>&nbsp;</div></td>
+		              				<td>
+		              					<input type="button" id="btnPurchase" class="btn" onclick="buyLicense();return false;" value="Quote / Buy" />&nbsp;
+					  					<span id="lblBuyMessage" style="color:red;"></span>
+				 							<div style="display:none;">
+											<a id="btnBuyLicense" target="_blank" href="https://secure.shareit.com/shareit/checkout.html?hidecoupon=1&js=-1&PRODUCT[300377343]=1">Purchase AddressTools Licenses</a>
+											<a id="btnBuyAdditionalLicense" target="_blank" href="https://secure.shareit.com/shareit/checkout.html?hidecoupon=1&js=-1&PRODUCT[300377343]=1&PRODUCT[300377344]=">Purchase additional AddressTools Licenses</a>
+				        				</div>
+		              				</td>
+		              			</tr>
+		              		</table>
+		                </div>
+	                </apex:panelGroup>
+	            </apex:pageBlock>
+	       	    <div style="font-style:italic;margin-top:1em;">
+	       	    	<div style="width:100%;text-align:center;">Please have your Salesforce Organization ID&nbsp;-&nbsp;<span style="color:red;"><b>{!OrganizationId}</b></span>&nbsp;–&nbsp;ready to enter as part of the order process.</div>
+	                <div style="width:100%;text-align:center;"><a href="http://www.provenworks.com" title="ProvenWorks">ProvenWorks</a> uses <a href="http://www.shareit.com" title="share*it!">share*it!</a> for the {!IF(IsVersionPro, 'AddressTools', 'CountryComplete')} ordering process</div>
+	                <div style="width:100%;text-align:center;">Credits are valid for 1 year from date of purchase</div>
+	            </div>
+			</apex:tab>
+	
+			<apex:tab label="Help" name="Help" ontabenter="initTabs('Help');">
+				<apex:pageBlock title="Suggestions">
+		  	         <div>We'd love to hear {!IF(IsVersionPro, 'your ideas on how we can improve AddressTools with additional features or new tools', 'your ideas on how we can improve CountryComplete')}, please <a href="http://countrycomplete.uservoice.com" alt="CountryComplete Ideas">suggest them</a>!</div>
+		        </apex:pageBlock>
+				<apex:pageBlock title="Frequently Asked Questions">
+		            <ul style="padding:0; margin:0pt;">
+		            	<li style="margin-bottom:10pt;">
+		        	        I've followed the configuration guide, but I'm still not getting values in the drop down list, have I missed something?<br/>
+		                    <i>
+		                        Go to an account edit page, and look for our sidebar component in the left hand sidebar. If you see an error message "Default Values Not Installed", you need to either install defaults from the Settings tab, or clear your browser cache to fetch the newly installed default values in our JavaScript resource. The resource is cached for 24 hours, after which no user will experience this issue.
+		           	        </i>
+		      			</li>
+				    	<li style="margin-bottom:10pt;">
+		        		   	Why are some of the country names truncated?<br/>
+		                    <i>
+		                        Some of the standard country fields inside Salesforce have a maximum length of 40 characters despite some full English country names being longer than this. 
+		                        To avoid any nasty errors, all the country names that we use are truncated to fit in this size.
+		           	        </i>
+		      			</li>
+				        <li style="margin-bottom:10pt;">
+		     	          	Standard Users receive the error &quot;System.QueryException: sObject type &#39;{!IF(IsVersionPro, 'pw_ccpro', 'pw_cc')}__Setting__c&#39; is not supported.: ({!IF(IsVersionPro, 'pw_ccpro', 'pw_cc')})&quot; when making changes to an Account.<br/>
+							<i>
+								This is caused by the {!IF(IsVersionPro, 'AddressTools', 'CountryComplete')} not being deployed yet. 
+								To resolve this simply go to Setup->View->Installed Packaged.
+								Then click &quot;{!IF(IsVersionPro, 'AddressTools', 'CountryComplete')}&quot;, then click the &quot;Deploy&quot; button
+		        	       	</i>
+		      			</li>
+		      			<li style="margin-bottom:10pt;display:{!IF(IsVersionPro,'none','list-item')}">
+		      				We would like to store the ISO code rather than the full name, how can we do that?<br/>
+		      				<i>
+		      					<a href="https://sites.secure.force.com/appexchange/listingDetail?listingId=a0N30000002zt9uEAA">AddressTools</a>, available from the AppExchange has an easily selectable option for this 
+		      				</i>
+		      			</li>
+		      			<li style="margin-bottom:10pt;display:{!IF(IsVersionPro,'none','list-item')}">
+		      				When will you be adding support for States?<br/>
+		      				<i>
+		      					<a href="https://sites.secure.force.com/appexchange/listingDetail?listingId=a0N30000002zt9uEAA">AddressTools</a>, available from the AppExchange not only has support for States but comes pre-populated with reference data for a variety of countries
+		      				</i>
+		      			</li>
+		            </ul>
+		            <div>For any other enquires please contact <a href="mailto:support@provenworks.com" title="support@provenworks.com">support@provenworks.com</a></div>
+		        </apex:pageBlock>
+	       	</apex:tab>
+		</apex:tabPanel>
+    </apex:form>
+</apex:page>
